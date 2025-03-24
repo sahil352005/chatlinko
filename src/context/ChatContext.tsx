@@ -5,6 +5,7 @@ import { setupBroadcastChannel, sendBroadcastMessage } from '../utils/broadcastC
 import { usePeerConnection } from '../hooks/usePeerConnection';
 import { createUser } from '../utils/userUtils';
 import { User, Message, ChatContextType } from '../types/chat';
+import { toast } from '@/hooks/use-toast';
 
 // Create context
 const ChatContext = createContext<ChatContextType | undefined>(undefined);
@@ -21,6 +22,7 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
   // Use our custom hook for peer connections
   const { 
     signalingData, 
+    peerSupported,
     createPeerConnection, 
     joinPeerConnection, 
     sendPeerData, 
@@ -78,7 +80,11 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
     setUsers([newUser]);
     
     // Initialize peer connection as the room creator
-    createPeerConnection(newUser.id, newRoomId, handleDataReceived);
+    if (peerSupported) {
+      createPeerConnection(newUser.id, newRoomId, handleDataReceived);
+    } else {
+      console.log('WebRTC not supported, using BroadcastChannel only');
+    }
     
     // Also set up broadcast channel for same-origin communication
     const { channel } = setupBroadcastChannel(
@@ -92,7 +98,7 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
     setBroadcastChannel(channel);
     setIsConnected(true);
     return newRoomId;
-  }, [createPeerConnection, handleDataReceived]);
+  }, [createPeerConnection, handleDataReceived, peerSupported]);
 
   // Join an existing room
   const joinRoom = useCallback((roomId: string, userName: string) => {
@@ -127,24 +133,50 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
     if (!user || !roomId) return;
     
     try {
-      const success = joinPeerConnection(user.id, roomId, data, handleDataReceived);
-      
-      if (success) {
-        // Announce user's presence
-        sendPeerData(user.id, 'USER_JOINED', user);
+      if (peerSupported) {
+        const success = joinPeerConnection(user.id, roomId, data, handleDataReceived);
         
-        // Request current users
-        sendPeerData(user.id, 'REQUEST_USERS', { userId: user.id });
+        if (success) {
+          // Announce user's presence
+          sendPeerData(user.id, 'USER_JOINED', user);
+          
+          // Request current users
+          sendPeerData(user.id, 'REQUEST_USERS', { userId: user.id });
+          
+          toast({
+            title: "Connected successfully",
+            description: "You're now connected with other users via WebRTC"
+          });
+        } else {
+          toast({
+            title: "Connection failed",
+            description: "Could not establish WebRTC connection. Falling back to same-device mode.",
+            variant: "destructive"
+          });
+        }
+      } else {
+        toast({
+          title: "WebRTC not supported",
+          description: "Your browser doesn't support WebRTC. Limited to same-device communication.",
+          variant: "destructive"
+        });
       }
     } catch (error) {
       console.error('Error connecting with signaling data:', error);
+      toast({
+        title: "Connection error",
+        description: "Failed to connect using the provided data",
+        variant: "destructive"
+      });
     }
-  }, [user, roomId, joinPeerConnection, handleDataReceived, sendPeerData]);
+  }, [user, roomId, joinPeerConnection, handleDataReceived, sendPeerData, peerSupported]);
 
   // Leave room
   const leaveRoom = useCallback(() => {
     // Close peer connections
-    closePeerConnections();
+    if (peerSupported) {
+      closePeerConnections();
+    }
     
     // Close broadcast channel
     if (broadcastChannel && user) {
@@ -158,7 +190,7 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
     setMessages([]);
     setUsers([]);
     setIsConnected(false);
-  }, [broadcastChannel, user, closePeerConnections]);
+  }, [broadcastChannel, user, closePeerConnections, peerSupported]);
 
   // Send a message
   const sendMessage = useCallback((text: string) => {
@@ -177,13 +209,15 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
     setMessages(prev => [...prev, newMessage]);
     
     // Send via peer connections if available
-    sendPeerData(user.id, 'NEW_MESSAGE', newMessage);
+    if (peerSupported) {
+      sendPeerData(user.id, 'NEW_MESSAGE', newMessage);
+    }
     
     // Also broadcast to same-origin peers
     if (broadcastChannel) {
       sendBroadcastMessage(broadcastChannel, 'NEW_MESSAGE', newMessage);
     }
-  }, [user, roomId, broadcastChannel, sendPeerData]);
+  }, [user, roomId, broadcastChannel, sendPeerData, peerSupported]);
 
   // Context value
   const value = {

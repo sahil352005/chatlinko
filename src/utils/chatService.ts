@@ -12,9 +12,6 @@ export type PeerMessage = {
 const peerConnections = new Map();
 const peerSignalingData = new Map();
 
-// Simple-peer requires a specific polyfill for WebRTC in some browsers
-// This is handled automatically by the library
-
 export const generateRoomId = (): string => {
   return nanoid(10);
 };
@@ -25,32 +22,42 @@ export const generateUserId = (): string => {
 
 // Initialize a peer connection as the room creator
 export const initializePeer = (userId: string, roomId: string, onData: (data: any) => void): Peer.Instance => {
-  // Create a new peer as the initiator
-  const peer = new Peer({
-    initiator: true,
-    trickle: false
-  });
+  try {
+    // Create a new peer as the initiator
+    const peer = new Peer({
+      initiator: true,
+      trickle: false
+    });
 
-  // Listen for signaling data that needs to be shared with other peers
-  peer.on('signal', (data) => {
-    // Store the signaling data for this room
-    peerSignalingData.set(roomId, JSON.stringify(data));
-    console.log('Created room with signaling data:', data);
-  });
+    // Listen for signaling data that needs to be shared with other peers
+    peer.on('signal', (data) => {
+      // Store the signaling data for this room
+      peerSignalingData.set(roomId, JSON.stringify(data));
+      console.log('Created room with signaling data:', data);
+    });
 
-  // Handle incoming data from connected peers
-  peer.on('data', (data) => {
-    try {
-      const message = JSON.parse(data.toString());
-      onData(message);
-    } catch (error) {
-      console.error('Error parsing peer data:', error);
-    }
-  });
+    // Handle incoming data from connected peers
+    peer.on('data', (data) => {
+      try {
+        const message = JSON.parse(data.toString());
+        onData(message);
+      } catch (error) {
+        console.error('Error parsing peer data:', error);
+      }
+    });
 
-  // Store the peer connection
-  peerConnections.set(userId, peer);
-  return peer;
+    // Handle errors
+    peer.on('error', (err) => {
+      console.error('Peer connection error:', err);
+    });
+
+    // Store the peer connection
+    peerConnections.set(userId, peer);
+    return peer;
+  } catch (error) {
+    console.error('Error initializing peer:', error);
+    throw error;
+  }
 };
 
 // Join an existing peer connection using the signaling data
@@ -82,6 +89,11 @@ export const joinPeer = (userId: string, roomId: string, signalingData: string, 
       }
     });
 
+    // Handle errors
+    peer.on('error', (err) => {
+      console.error('Peer connection error:', err);
+    });
+
     // Store the peer connection
     peerConnections.set(userId, peer);
     return peer;
@@ -93,11 +105,16 @@ export const joinPeer = (userId: string, roomId: string, signalingData: string, 
 
 // Send a message through the peer connection
 export const sendPeerMessage = (userId: string, message: PeerMessage): void => {
-  const peer = peerConnections.get(userId);
-  if (peer && peer.connected) {
-    peer.send(JSON.stringify(message));
-  } else {
-    console.warn('Peer not connected, cannot send message');
+  try {
+    const peer = peerConnections.get(userId);
+    if (peer && peer.connected) {
+      peer.send(JSON.stringify(message));
+    } else {
+      console.warn('Peer not connected, cannot send message');
+    }
+  } catch (error) {
+    console.error('Error sending peer message:', error);
+    throw error;
   }
 };
 
@@ -108,11 +125,15 @@ export const getSignalingData = (roomId: string): string | null => {
 
 // Close all peer connections
 export const closeAllPeers = (): void => {
-  peerConnections.forEach((peer) => {
-    if (peer) {
-      peer.destroy();
-    }
-  });
-  peerConnections.clear();
-  peerSignalingData.clear();
+  try {
+    peerConnections.forEach((peer) => {
+      if (peer) {
+        peer.destroy();
+      }
+    });
+    peerConnections.clear();
+    peerSignalingData.clear();
+  } catch (error) {
+    console.error('Error closing peer connections:', error);
+  }
 };

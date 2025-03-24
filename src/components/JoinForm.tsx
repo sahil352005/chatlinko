@@ -1,4 +1,3 @@
-
 import React, { useState, useEffect } from 'react';
 import { useChat } from '../context/ChatContext';
 import { Button } from "@/components/ui/button";
@@ -15,7 +14,10 @@ const JoinForm: React.FC = () => {
   const [signalingData, setSignalingData] = useState('');
   const { joinRoom, createRoom, signalingData: peerSignalingData, connectWithSignalingData } = useChat();
 
-  // Check for room ID in URL
+  const isWebRTCSupported = () => {
+    return typeof RTCPeerConnection !== 'undefined';
+  };
+
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
     const roomIdParam = params.get('room');
@@ -28,7 +30,14 @@ const JoinForm: React.FC = () => {
   const handleAction = (e: React.FormEvent) => {
     e.preventDefault();
     
-    if (!userName.trim()) return;
+    if (!userName.trim()) {
+      toast({
+        title: "Name required",
+        description: "Please enter your name to continue",
+        variant: "destructive"
+      });
+      return;
+    }
     
     if (joinMode === 'create') {
       const newRoomId = createRoom(userName.trim());
@@ -39,8 +48,24 @@ const JoinForm: React.FC = () => {
         title: "Room created!",
         description: "Share the room link and your connection data with others to join"
       });
+      
+      if (!isWebRTCSupported()) {
+        toast({
+          title: "Limited functionality",
+          description: "WebRTC is not supported in this browser. The app will work only for users on the same device.",
+          variant: "destructive"
+        });
+      }
     } else {
-      if (!roomId.trim()) return;
+      if (!roomId.trim()) {
+        toast({
+          title: "Room ID required",
+          description: "Please enter a room ID to join",
+          variant: "destructive"
+        });
+        return;
+      }
+      
       joinRoom(roomId.trim(), userName.trim());
       
       if (signalingData.trim()) {
@@ -48,6 +73,18 @@ const JoinForm: React.FC = () => {
         setTimeout(() => {
           connectWithSignalingData(signalingData.trim());
         }, 1000);
+      } else if (!isWebRTCSupported()) {
+        toast({
+          title: "Limited functionality",
+          description: "WebRTC is not supported in this browser. You may only see messages from users on the same device.",
+          variant: "destructive"
+        });
+      } else {
+        toast({
+          title: "Connection data missing",
+          description: "Without connection data, you'll only see messages from users on the same device.",
+          variant: "warning"
+        });
       }
     }
   };
@@ -67,6 +104,13 @@ const JoinForm: React.FC = () => {
       <h2 className="text-2xl font-medium mb-6 text-center">
         {joinMode === 'create' ? 'Create a New Chat' : 'Join Existing Chat'}
       </h2>
+      
+      {!isWebRTCSupported() && (
+        <div className="mb-4 p-3 bg-yellow-50 border border-yellow-200 rounded-md text-sm text-yellow-800">
+          <p className="font-medium mb-1">Limited Functionality</p>
+          <p>Your browser doesn't fully support WebRTC. The app will only work for users on the same device.</p>
+        </div>
+      )}
       
       <form onSubmit={handleAction} className="space-y-4">
         <div>
