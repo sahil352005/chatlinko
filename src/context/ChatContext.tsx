@@ -1,57 +1,13 @@
 
-import React, { createContext, useContext, useEffect, useState } from 'react';
-import { 
-  generateRoomId, 
-  generateUserId, 
-  initializePeer, 
-  joinPeer,
-  sendPeerMessage,
-  closeAllPeers,
-  getSignalingData,
-  PeerMessage
-} from '../utils/chatService';
-
-// Define types
-type User = {
-  id: string;
-  name: string;
-  color: string;
-};
-
-type Message = {
-  id: string;
-  text: string;
-  userId: string;
-  userName: string;
-  timestamp: number;
-  color: string;
-};
-
-type ChatContextType = {
-  messages: Message[];
-  roomId: string | null;
-  user: User | null;
-  users: User[];
-  sendMessage: (text: string) => void;
-  joinRoom: (roomId: string, userName: string) => void;
-  createRoom: (userName: string) => string;
-  leaveRoom: () => void;
-  isConnected: boolean;
-  signalingData: string | null;
-  connectWithSignalingData: (data: string) => void;
-};
+import React, { createContext, useContext, useEffect, useState, useCallback } from 'react';
+import { generateRoomId } from '../utils/chatService';
+import { setupBroadcastChannel, sendBroadcastMessage } from '../utils/broadcastChannel';
+import { usePeerConnection } from '../hooks/usePeerConnection';
+import { createUser } from '../utils/userUtils';
+import { User, Message, ChatContextType } from '../types/chat';
 
 // Create context
 const ChatContext = createContext<ChatContextType | undefined>(undefined);
-
-// Random color function (soft pastel colors)
-const getRandomColor = () => {
-  const colors = [
-    '#FFA69E', '#FAF3DD', '#B8F2E6', '#AED9E0', '#5E6472',
-    '#E3D0D8', '#C1D37F', '#A3C4BC', '#957DAD', '#D291BC'
-  ];
-  return colors[Math.floor(Math.random() * colors.length)];
-};
 
 // Provider component
 export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
@@ -60,13 +16,19 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const [users, setUsers] = useState<User[]>([]);
   const [roomId, setRoomId] = useState<string | null>(null);
   const [isConnected, setIsConnected] = useState(false);
-  const [signalingData, setSignalingData] = useState<string | null>(null);
-  
-  // For same-origin fallback
   const [broadcastChannel, setBroadcastChannel] = useState<BroadcastChannel | null>(null);
 
-  // Handler for peer messages
-  const handlePeerMessage = (data: any) => {
+  // Use our custom hook for peer connections
+  const { 
+    signalingData, 
+    createPeerConnection, 
+    joinPeerConnection, 
+    sendPeerData, 
+    closePeerConnections 
+  } = usePeerConnection();
+
+  // Handler for peer and broadcast messages
+  const handleDataReceived = useCallback((data: any) => {
     const { type, payload } = data;
     
     switch (type) {
@@ -83,10 +45,7 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
           
           // If you're already in the room, send your user info back
           if (user) {
-            sendPeerMessage(user.id, {
-              type: 'USER_INFO',
-              payload: user
-            });
+            sendPeerData(user.id, 'USER_INFO', user);
           }
         }
         break;
@@ -103,115 +62,93 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
         
       case 'REQUEST_USERS':
         if (payload.userId !== user?.id && user) {
-          sendPeerMessage(user.id, {
-            type: 'USER_INFO',
-            payload: user
-          });
+          sendPeerData(user.id, 'USER_INFO', user);
         }
         break;
     }
-  };
+  }, [user, sendPeerData]);
 
   // Create a new room
-  const createRoom = (userName: string) => {
+  const createRoom = useCallback((userName: string) => {
     const newRoomId = generateRoomId();
-    const newUserId = generateUserId();
-    
-    // Create user
-    const newUser = {
-      id: newUserId,
-      name: userName,
-      color: getRandomColor()
-    };
+    const newUser = createUser(userName);
     
     setUser(newUser);
     setRoomId(newRoomId);
     setUsers([newUser]);
     
     // Initialize peer connection as the room creator
-    initializePeer(newUserId, newRoomId, handlePeerMessage);
+    createPeerConnection(newUser.id, newRoomId, handleDataReceived);
     
     // Also set up broadcast channel for same-origin communication
-    const channel = new BroadcastChannel(`chat-room-${newRoomId}`);
+    const { channel } = setupBroadcastChannel(
+      newRoomId,
+      newUser,
+      (message) => setMessages(prev => [...prev, message]),
+      (user) => setUsers(prev => [...prev.filter(u => u.id !== user.id), user]),
+      (userId) => setUsers(prev => prev.filter(u => u.id !== userId))
+    );
+    
     setBroadcastChannel(channel);
-    
-    // Update the signaling data
-    const sigData = getSignalingData(newRoomId);
-    if (sigData) {
-      setSignalingData(sigData);
-    }
-    
     setIsConnected(true);
     return newRoomId;
-  };
+  }, [createPeerConnection, handleDataReceived]);
 
   // Join an existing room
-  const joinRoom = (roomId: string, userName: string) => {
-    // Create user
-    const newUserId = generateUserId();
-    const newUser = {
-      id: newUserId,
-      name: userName,
-      color: getRandomColor()
-    };
+  const joinRoom = useCallback((roomId: string, userName: string) => {
+    const newUser = createUser(userName);
     
     setUser(newUser);
     setRoomId(roomId);
     setUsers([newUser]);
     
-    // Create a new BroadcastChannel for same-origin communication
-    const channel = new BroadcastChannel(`chat-room-${roomId}`);
+    // Set up broadcast channel for same-origin communication
+    const { channel } = setupBroadcastChannel(
+      roomId,
+      newUser,
+      (message) => setMessages(prev => [...prev, message]),
+      (user) => setUsers(prev => [...prev.filter(u => u.id !== user.id), user]),
+      (userId) => setUsers(prev => prev.filter(u => u.id !== userId))
+    );
+    
     setBroadcastChannel(channel);
     
     // Announce user's presence
-    channel.postMessage({
-      type: 'USER_JOINED',
-      payload: newUser
-    });
+    sendBroadcastMessage(channel, 'USER_JOINED', newUser);
     
     // Request current users in the room
-    channel.postMessage({
-      type: 'REQUEST_USERS',
-      payload: { userId: newUser.id }
-    });
+    sendBroadcastMessage(channel, 'REQUEST_USERS', { userId: newUser.id });
     
     setIsConnected(true);
-  };
+  }, []);
 
   // Connect with signaling data (for WebRTC)
-  const connectWithSignalingData = (data: string) => {
+  const connectWithSignalingData = useCallback((data: string) => {
     if (!user || !roomId) return;
     
     try {
-      joinPeer(user.id, roomId, data, handlePeerMessage);
+      const success = joinPeerConnection(user.id, roomId, data, handleDataReceived);
       
-      // Announce user's presence
-      sendPeerMessage(user.id, {
-        type: 'USER_JOINED',
-        payload: user
-      });
-      
-      // Request current users
-      sendPeerMessage(user.id, {
-        type: 'REQUEST_USERS',
-        payload: { userId: user.id }
-      });
+      if (success) {
+        // Announce user's presence
+        sendPeerData(user.id, 'USER_JOINED', user);
+        
+        // Request current users
+        sendPeerData(user.id, 'REQUEST_USERS', { userId: user.id });
+      }
     } catch (error) {
       console.error('Error connecting with signaling data:', error);
     }
-  };
+  }, [user, roomId, joinPeerConnection, handleDataReceived, sendPeerData]);
 
   // Leave room
-  const leaveRoom = () => {
+  const leaveRoom = useCallback(() => {
     // Close peer connections
-    closeAllPeers();
+    closePeerConnections();
     
     // Close broadcast channel
     if (broadcastChannel && user) {
-      broadcastChannel.postMessage({
-        type: 'USER_LEFT',
-        payload: { userId: user.id }
-      });
+      sendBroadcastMessage(broadcastChannel, 'USER_LEFT', { userId: user.id });
       broadcastChannel.close();
     }
     
@@ -220,16 +157,15 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
     setRoomId(null);
     setMessages([]);
     setUsers([]);
-    setSignalingData(null);
     setIsConnected(false);
-  };
+  }, [broadcastChannel, user, closePeerConnections]);
 
   // Send a message
-  const sendMessage = (text: string) => {
+  const sendMessage = useCallback((text: string) => {
     if (!user || !roomId) return;
     
     const newMessage: Message = {
-      id: generateUserId(),
+      id: generateRoomId(), // Using the roomId generator function for message IDs
       text,
       userId: user.id,
       userName: user.name,
@@ -241,75 +177,13 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
     setMessages(prev => [...prev, newMessage]);
     
     // Send via peer connections if available
-    sendPeerMessage(user.id, {
-      type: 'NEW_MESSAGE',
-      payload: newMessage
-    });
+    sendPeerData(user.id, 'NEW_MESSAGE', newMessage);
     
     // Also broadcast to same-origin peers
     if (broadcastChannel) {
-      broadcastChannel.postMessage({
-        type: 'NEW_MESSAGE',
-        payload: newMessage
-      });
+      sendBroadcastMessage(broadcastChannel, 'NEW_MESSAGE', newMessage);
     }
-  };
-
-  // Set up event listeners for the BroadcastChannel
-  useEffect(() => {
-    if (!broadcastChannel) return;
-    
-    const handleMessage = (event: MessageEvent) => {
-      const { type, payload } = event.data;
-      
-      switch (type) {
-        case 'NEW_MESSAGE':
-          // Avoid duplicating own messages
-          if (payload.userId !== user?.id) {
-            setMessages(prev => [...prev, payload]);
-          }
-          break;
-          
-        case 'USER_JOINED':
-          if (payload.id !== user?.id) {
-            setUsers(prev => [...prev.filter(u => u.id !== payload.id), payload]);
-            
-            // If you're already in the room, send your user info back
-            broadcastChannel.postMessage({
-              type: 'USER_INFO',
-              payload: user
-            });
-          }
-          break;
-          
-        case 'USER_INFO':
-          if (payload.id !== user?.id) {
-            setUsers(prev => [...prev.filter(u => u.id !== payload.id), payload]);
-          }
-          break;
-          
-        case 'USER_LEFT':
-          setUsers(prev => prev.filter(u => u.id !== payload.userId));
-          break;
-          
-        case 'REQUEST_USERS':
-          if (payload.userId !== user?.id) {
-            broadcastChannel.postMessage({
-              type: 'USER_INFO',
-              payload: user
-            });
-          }
-          break;
-      }
-    };
-    
-    broadcastChannel.addEventListener('message', handleMessage);
-    
-    // Cleanup
-    return () => {
-      broadcastChannel.removeEventListener('message', handleMessage);
-    };
-  }, [broadcastChannel, user]);
+  }, [user, roomId, broadcastChannel, sendPeerData]);
 
   // Context value
   const value = {

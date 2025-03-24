@@ -2,9 +2,6 @@
 import { nanoid } from 'nanoid';
 import Peer from 'simple-peer';
 
-// Add the required dependency
-<lov-add-dependency>simple-peer@9.11.1</lov-add-dependency>
-
 // Define types
 export type PeerMessage = {
   type: string;
