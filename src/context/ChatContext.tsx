@@ -1,6 +1,15 @@
 
 import React, { createContext, useContext, useEffect, useState } from 'react';
-import { nanoid } from 'nanoid';
+import { 
+  generateRoomId, 
+  generateUserId, 
+  initializePeer, 
+  joinPeer,
+  sendPeerMessage,
+  closeAllPeers,
+  getSignalingData,
+  PeerMessage
+} from '../utils/chatService';
 
 // Define types
 type User = {
@@ -28,6 +37,8 @@ type ChatContextType = {
   createRoom: (userName: string) => string;
   leaveRoom: () => void;
   isConnected: boolean;
+  signalingData: string | null;
+  connectWithSignalingData: (data: string) => void;
 };
 
 // Create context
@@ -49,22 +60,106 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const [users, setUsers] = useState<User[]>([]);
   const [roomId, setRoomId] = useState<string | null>(null);
   const [isConnected, setIsConnected] = useState(false);
+  const [signalingData, setSignalingData] = useState<string | null>(null);
   
-  // Set up the BroadcastChannel for same-origin communication
+  // For same-origin fallback
   const [broadcastChannel, setBroadcastChannel] = useState<BroadcastChannel | null>(null);
+
+  // Handler for peer messages
+  const handlePeerMessage = (data: any) => {
+    const { type, payload } = data;
+    
+    switch (type) {
+      case 'NEW_MESSAGE':
+        // Avoid duplicating own messages
+        if (payload.userId !== user?.id) {
+          setMessages(prev => [...prev, payload]);
+        }
+        break;
+        
+      case 'USER_JOINED':
+        if (payload.id !== user?.id) {
+          setUsers(prev => [...prev.filter(u => u.id !== payload.id), payload]);
+          
+          // If you're already in the room, send your user info back
+          if (user) {
+            sendPeerMessage(user.id, {
+              type: 'USER_INFO',
+              payload: user
+            });
+          }
+        }
+        break;
+        
+      case 'USER_INFO':
+        if (payload.id !== user?.id) {
+          setUsers(prev => [...prev.filter(u => u.id !== payload.id), payload]);
+        }
+        break;
+        
+      case 'USER_LEFT':
+        setUsers(prev => prev.filter(u => u.id !== payload.userId));
+        break;
+        
+      case 'REQUEST_USERS':
+        if (payload.userId !== user?.id && user) {
+          sendPeerMessage(user.id, {
+            type: 'USER_INFO',
+            payload: user
+          });
+        }
+        break;
+    }
+  };
+
+  // Create a new room
+  const createRoom = (userName: string) => {
+    const newRoomId = generateRoomId();
+    const newUserId = generateUserId();
+    
+    // Create user
+    const newUser = {
+      id: newUserId,
+      name: userName,
+      color: getRandomColor()
+    };
+    
+    setUser(newUser);
+    setRoomId(newRoomId);
+    setUsers([newUser]);
+    
+    // Initialize peer connection as the room creator
+    initializePeer(newUserId, newRoomId, handlePeerMessage);
+    
+    // Also set up broadcast channel for same-origin communication
+    const channel = new BroadcastChannel(`chat-room-${newRoomId}`);
+    setBroadcastChannel(channel);
+    
+    // Update the signaling data
+    const sigData = getSignalingData(newRoomId);
+    if (sigData) {
+      setSignalingData(sigData);
+    }
+    
+    setIsConnected(true);
+    return newRoomId;
+  };
 
   // Join an existing room
   const joinRoom = (roomId: string, userName: string) => {
     // Create user
+    const newUserId = generateUserId();
     const newUser = {
-      id: nanoid(),
+      id: newUserId,
       name: userName,
       color: getRandomColor()
     };
+    
     setUser(newUser);
     setRoomId(roomId);
+    setUsers([newUser]);
     
-    // Create a new BroadcastChannel for this room
+    // Create a new BroadcastChannel for same-origin communication
     const channel = new BroadcastChannel(`chat-room-${roomId}`);
     setBroadcastChannel(channel);
     
@@ -83,15 +178,35 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
     setIsConnected(true);
   };
 
-  // Create a new room
-  const createRoom = (userName: string) => {
-    const newRoomId = nanoid(10);
-    joinRoom(newRoomId, userName);
-    return newRoomId;
+  // Connect with signaling data (for WebRTC)
+  const connectWithSignalingData = (data: string) => {
+    if (!user || !roomId) return;
+    
+    try {
+      joinPeer(user.id, roomId, data, handlePeerMessage);
+      
+      // Announce user's presence
+      sendPeerMessage(user.id, {
+        type: 'USER_JOINED',
+        payload: user
+      });
+      
+      // Request current users
+      sendPeerMessage(user.id, {
+        type: 'REQUEST_USERS',
+        payload: { userId: user.id }
+      });
+    } catch (error) {
+      console.error('Error connecting with signaling data:', error);
+    }
   };
 
   // Leave room
   const leaveRoom = () => {
+    // Close peer connections
+    closeAllPeers();
+    
+    // Close broadcast channel
     if (broadcastChannel && user) {
       broadcastChannel.postMessage({
         type: 'USER_LEFT',
@@ -105,15 +220,16 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
     setRoomId(null);
     setMessages([]);
     setUsers([]);
+    setSignalingData(null);
     setIsConnected(false);
   };
 
   // Send a message
   const sendMessage = (text: string) => {
-    if (!user || !broadcastChannel || !roomId) return;
+    if (!user || !roomId) return;
     
     const newMessage: Message = {
-      id: nanoid(),
+      id: generateUserId(),
       text,
       userId: user.id,
       userName: user.name,
@@ -124,11 +240,19 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
     // Add to local messages
     setMessages(prev => [...prev, newMessage]);
     
-    // Broadcast to others in the room
-    broadcastChannel.postMessage({
+    // Send via peer connections if available
+    sendPeerMessage(user.id, {
       type: 'NEW_MESSAGE',
       payload: newMessage
     });
+    
+    // Also broadcast to same-origin peers
+    if (broadcastChannel) {
+      broadcastChannel.postMessage({
+        type: 'NEW_MESSAGE',
+        payload: newMessage
+      });
+    }
   };
 
   // Set up event listeners for the BroadcastChannel
@@ -198,6 +322,8 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
     createRoom,
     leaveRoom,
     isConnected,
+    signalingData,
+    connectWithSignalingData
   };
 
   return <ChatContext.Provider value={value}>{children}</ChatContext.Provider>;
