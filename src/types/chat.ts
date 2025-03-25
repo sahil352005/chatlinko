@@ -25,5 +25,6 @@ export type ChatContextType = {
   leaveRoom: () => void;
   isConnected: boolean;
   signalingData: string | null;
+  connectionStatus: 'disconnected' | 'connecting' | 'connected';
   connectWithSignalingData: (data: string) => void;
 };

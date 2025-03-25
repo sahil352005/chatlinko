@@ -4,7 +4,7 @@ import { useChat } from '../context/ChatContext';
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
-import { ArrowRight, PlusCircle, Link2 } from 'lucide-react';
+import { ArrowRight, PlusCircle, Link2, Info } from 'lucide-react';
 import { toast } from "@/hooks/use-toast";
 
 const JoinForm: React.FC = () => {
@@ -47,7 +47,7 @@ const JoinForm: React.FC = () => {
       navigator.clipboard.writeText(roomLink);
       toast({
         title: "Room created!",
-        description: "Share the room link and your connection data with others to join"
+        description: "Share both the room link AND your connection data with others to join across different networks"
       });
       
       if (!isWebRTCSupported()) {
@@ -83,7 +83,7 @@ const JoinForm: React.FC = () => {
       } else {
         toast({
           title: "Connection data missing",
-          description: "Without connection data, you'll only see messages from users on the same device.",
+          description: "For cross-network chat, you need the connection data from the room creator",
           variant: "default"
         });
       }
@@ -105,6 +105,20 @@ const JoinForm: React.FC = () => {
       <h2 className="text-2xl font-medium mb-6 text-center">
         {joinMode === 'create' ? 'Create a New Chat' : 'Join Existing Chat'}
       </h2>
+      
+      {joinMode === 'create' && (
+        <div className="mb-4 p-3 bg-blue-50 border border-blue-200 rounded-md text-sm text-blue-800">
+          <p className="font-medium mb-1 flex items-center"><Info className="h-4 w-4 mr-1" /> Cross-Network Instructions</p>
+          <p>After creating a room, you must share <b>both</b> the room link <b>and</b> connection data with your friends.</p>
+        </div>
+      )}
+      
+      {joinMode === 'join' && !showSignalingInput && (
+        <div className="mb-4 p-3 bg-blue-50 border border-blue-200 rounded-md text-sm text-blue-800">
+          <p className="font-medium mb-1 flex items-center"><Info className="h-4 w-4 mr-1" /> Cross-Network Instructions</p>
+          <p>To chat with someone on a different network, click <b>"Enter connection data"</b> below and paste the data shared by the room creator.</p>
+        </div>
+      )}
       
       {!isWebRTCSupported() && (
         <div className="mb-4 p-3 bg-yellow-50 border border-yellow-200 rounded-md text-sm text-yellow-800">
@@ -149,12 +163,17 @@ const JoinForm: React.FC = () => {
                 </button>
                 
                 {showSignalingInput && (
-                  <Textarea
-                    value={signalingData}
-                    onChange={(e) => setSignalingData(e.target.value)}
-                    placeholder="Paste the connection data from the room creator"
-                    className="h-24 text-xs"
-                  />
+                  <>
+                    <Textarea
+                      value={signalingData}
+                      onChange={(e) => setSignalingData(e.target.value)}
+                      placeholder="Paste the connection data from the room creator"
+                      className="h-24 text-xs"
+                    />
+                    <p className="text-xs text-gray-500 mt-1">
+                      For cross-network communication, this data is required
+                    </p>
+                  </>
                 )}
               </div>
             )}
@@ -192,7 +211,7 @@ const JoinForm: React.FC = () => {
               </Button>
             </div>
             <p className="text-xs text-gray-500 mb-2">
-              Share this connection data with anyone who wants to join your room
+              <b>IMPORTANT:</b> Share this connection data with anyone who wants to join from a different network
             </p>
             <div className="bg-white p-2 rounded border text-xs overflow-auto max-h-24 font-mono">
               {peerSignalingData}

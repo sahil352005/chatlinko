@@ -225,6 +225,7 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
     leaveRoom,
     isConnected,
     signalingData,
+    connectionStatus,
     connectWithSignalingData
   };
 

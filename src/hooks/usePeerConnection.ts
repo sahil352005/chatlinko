@@ -27,6 +27,15 @@ export const usePeerConnection = () => {
           setPeerSupported(false);
           return false;
         }
+        
+        // The simple-peer library uses these browser APIs, check if they're available
+        if (typeof window.RTCPeerConnection !== 'function' || 
+            typeof window.RTCSessionDescription !== 'function') {
+          console.warn('Required WebRTC APIs are not available');
+          setPeerSupported(false);
+          return false;
+        }
+        
         return true;
       } catch (error) {
         console.error('Error checking WebRTC support:', error);
@@ -51,12 +60,26 @@ export const usePeerConnection = () => {
       // Initialize the peer connection
       const peer = initializePeer(userId, roomId, onDataHandler);
       
+      if (!peer) {
+        console.error('Failed to initialize peer');
+        setPeerSupported(false);
+        setConnectionStatus('disconnected');
+        return false;
+      }
+      
       // Listen for connection events
       peer.on('connect', () => {
+        console.log('Peer connection established!');
         setConnectionStatus('connected');
       });
       
-      peer.on('error', () => {
+      peer.on('error', (err) => {
+        console.error('Peer connection error:', err);
+        setConnectionStatus('disconnected');
+      });
+      
+      peer.on('close', () => {
+        console.log('Peer connection closed');
         setConnectionStatus('disconnected');
       });
       
@@ -86,12 +109,26 @@ export const usePeerConnection = () => {
       
       const peer = joinPeer(userId, roomId, connectionData, onDataHandler);
       
+      if (!peer) {
+        console.error('Failed to join peer');
+        setPeerSupported(false);
+        setConnectionStatus('disconnected');
+        return false;
+      }
+      
       // Listen for connection events
       peer.on('connect', () => {
+        console.log('Peer connection established!');
         setConnectionStatus('connected');
       });
       
-      peer.on('error', () => {
+      peer.on('error', (err) => {
+        console.error('Peer connection error:', err);
+        setConnectionStatus('disconnected');
+      });
+      
+      peer.on('close', () => {
+        console.log('Peer connection closed');
         setConnectionStatus('disconnected');
       });
       

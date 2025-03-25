@@ -2,11 +2,11 @@
 import React from 'react';
 import { useChat } from '../context/ChatContext';
 import { Button } from "@/components/ui/button";
-import { Share, Users, LogOut, Wifi } from 'lucide-react';
+import { Share, Users, LogOut, Wifi, WifiOff } from 'lucide-react';
 import { toast } from "@/hooks/use-toast";
 
 const Header: React.FC = () => {
-  const { roomId, leaveRoom, users, signalingData } = useChat();
+  const { roomId, leaveRoom, users, signalingData, connectionStatus } = useChat();
 
   const handleShareLink = () => {
     if (roomId) {
@@ -35,6 +35,28 @@ const Header: React.FC = () => {
     }
   };
 
+  const getConnectionStatusDisplay = () => {
+    if (!signalingData) return null;
+    
+    return (
+      <span className={`ml-2 text-xs px-1.5 py-0.5 rounded-full flex items-center ${
+        connectionStatus === 'connected' 
+          ? 'bg-green-100 text-green-800' 
+          : connectionStatus === 'connecting'
+          ? 'bg-yellow-100 text-yellow-800'
+          : 'bg-gray-100 text-gray-800'
+      }`}>
+        {connectionStatus === 'connected' ? (
+          <><Wifi className="h-3 w-3 mr-0.5" />P2P</>
+        ) : connectionStatus === 'connecting' ? (
+          <><Wifi className="h-3 w-3 mr-0.5" />Connecting...</>
+        ) : (
+          <><WifiOff className="h-3 w-3 mr-0.5" />Offline</>
+        )}
+      </span>
+    );
+  };
+
   return (
     <header className="w-full p-4 flex items-center justify-between bg-white/90 backdrop-blur-md border-b border-gray-100 sticky top-0 z-10">
       <div className="flex items-center space-x-2">
@@ -54,13 +76,7 @@ const Header: React.FC = () => {
             <div className="flex items-center mr-2">
               <Users className="h-4 w-4 text-gray-500 mr-1" />
               <span className="text-sm text-gray-600">{users.length}</span>
-              
-              {signalingData && (
-                <span className="ml-2 text-xs bg-green-100 text-green-800 px-1.5 py-0.5 rounded-full flex items-center">
-                  <Wifi className="h-3 w-3 mr-0.5" />
-                  P2P
-                </span>
-              )}
+              {getConnectionStatusDisplay()}
             </div>
             
             <Button
