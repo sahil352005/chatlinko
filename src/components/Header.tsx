@@ -1,7 +1,8 @@
+
 import React, { useState } from 'react';
 import { useChat } from '../context/ChatContext';
 import { Button } from "@/components/ui/button";
-import { Share, Users, LogOut, Wifi, WifiOff, Copy, Eye, EyeOff } from 'lucide-react';
+import { Share, Users, LogOut, Wifi, WifiOff, Copy, Eye, EyeOff, Link as LinkIcon } from 'lucide-react';
 import { toast } from "@/hooks/use-toast";
 
 const Header: React.FC = () => {
@@ -155,6 +156,20 @@ const Header: React.FC = () => {
               {signalingData}
             </pre>
           </div>
+        </div>
+      )}
+
+      {!showConnectionData && signalingData && (
+        <div className="w-full mt-2 flex justify-center">
+          <Button
+            variant="link"
+            size="sm"
+            onClick={toggleShowConnectionData}
+            className="text-xs flex items-center gap-1 text-blue-500"
+          >
+            <LinkIcon className="h-3 w-3" />
+            <span>Show connection data for cross-network chat</span>
+          </Button>
         </div>
       )}
     </header>
