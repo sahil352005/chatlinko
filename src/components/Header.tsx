@@ -162,12 +162,12 @@ const Header: React.FC = () => {
       {!showConnectionData && signalingData && (
         <div className="w-full mt-2 flex justify-center">
           <Button
-            variant="link"
+            variant="ghost"
             size="sm"
             onClick={toggleShowConnectionData}
-            className="text-xs flex items-center gap-1 text-blue-500"
+            className="bg-blue-50 text-blue-600 hover:bg-blue-100 text-xs py-1.5 flex items-center gap-1 rounded-full px-4 animate-pulse"
           >
-            <LinkIcon className="h-3 w-3" />
+            <LinkIcon className="h-3.5 w-3.5" />
             <span>Show connection data for cross-network chat</span>
           </Button>
         </div>
