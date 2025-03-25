@@ -1,12 +1,12 @@
-
-import React from 'react';
+import React, { useState } from 'react';
 import { useChat } from '../context/ChatContext';
 import { Button } from "@/components/ui/button";
-import { Share, Users, LogOut, Wifi, WifiOff } from 'lucide-react';
+import { Share, Users, LogOut, Wifi, WifiOff, Copy, Eye, EyeOff } from 'lucide-react';
 import { toast } from "@/hooks/use-toast";
 
 const Header: React.FC = () => {
   const { roomId, leaveRoom, users, signalingData, connectionStatus } = useChat();
+  const [showConnectionData, setShowConnectionData] = useState(false);
 
   const handleShareLink = () => {
     if (roomId) {
@@ -57,62 +57,106 @@ const Header: React.FC = () => {
     );
   };
 
+  const toggleShowConnectionData = () => {
+    setShowConnectionData(!showConnectionData);
+  };
+
   return (
-    <header className="w-full p-4 flex items-center justify-between bg-white/90 backdrop-blur-md border-b border-gray-100 sticky top-0 z-10">
-      <div className="flex items-center space-x-2">
-        <div className="text-xl font-medium">Chat Room</div>
-        {roomId && (
-          <div className="flex items-center">
-            <span className="text-xs text-gray-500 bg-gray-100 px-2 py-0.5 rounded-full ml-2">
-              Room: {roomId.substring(0, 6)}...
-            </span>
-          </div>
-        )}
-      </div>
-      
-      <div className="flex items-center space-x-2">
-        {roomId && (
-          <>
-            <div className="flex items-center mr-2">
-              <Users className="h-4 w-4 text-gray-500 mr-1" />
-              <span className="text-sm text-gray-600">{users.length}</span>
-              {getConnectionStatusDisplay()}
+    <header className="w-full p-4 flex flex-col bg-white/90 backdrop-blur-md border-b border-gray-100 sticky top-0 z-10">
+      <div className="flex items-center justify-between">
+        <div className="flex items-center space-x-2">
+          <div className="text-xl font-medium">Chat Room</div>
+          {roomId && (
+            <div className="flex items-center">
+              <span className="text-xs text-gray-500 bg-gray-100 px-2 py-0.5 rounded-full ml-2">
+                Room: {roomId.substring(0, 6)}...
+              </span>
             </div>
-            
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={handleShareLink}
-              className="text-xs flex items-center gap-1 rounded-full px-3 hover:bg-gray-100"
-            >
-              <Share className="h-3.5 w-3.5" />
-              <span className="hidden sm:inline">Share Link</span>
-            </Button>
-            
-            {signalingData && (
+          )}
+        </div>
+        
+        <div className="flex items-center space-x-2">
+          {roomId && (
+            <>
+              <div className="flex items-center mr-2">
+                <Users className="h-4 w-4 text-gray-500 mr-1" />
+                <span className="text-sm text-gray-600">{users.length}</span>
+                {getConnectionStatusDisplay()}
+              </div>
+              
               <Button
                 variant="outline"
                 size="sm"
-                onClick={handleShareSignaling}
+                onClick={handleShareLink}
                 className="text-xs flex items-center gap-1 rounded-full px-3 hover:bg-gray-100"
               >
-                <Wifi className="h-3.5 w-3.5" />
-                <span className="hidden sm:inline">Share Connection</span>
+                <Share className="h-3.5 w-3.5" />
+                <span className="hidden sm:inline">Share Link</span>
               </Button>
-            )}
-            
-            <Button
-              variant="ghost"
-              size="sm"
-              onClick={leaveRoom}
-              className="text-xs flex items-center gap-1 rounded-full px-3 hover:bg-red-50 hover:text-red-500"
-            >
-              <LogOut className="h-3.5 w-3.5" />
-              <span className="hidden sm:inline">Leave</span>
-            </Button>
-          </>
-        )}
+              
+              {signalingData && (
+                <>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={handleShareSignaling}
+                    className="text-xs flex items-center gap-1 rounded-full px-3 hover:bg-gray-100"
+                  >
+                    <Copy className="h-3.5 w-3.5" />
+                    <span className="hidden sm:inline">Copy Connection</span>
+                  </Button>
+                  
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={toggleShowConnectionData}
+                    className="text-xs flex items-center gap-1 rounded-full px-3 hover:bg-gray-100"
+                  >
+                    {showConnectionData ? 
+                      <><EyeOff className="h-3.5 w-3.5" /><span className="hidden sm:inline">Hide Data</span></> : 
+                      <><Eye className="h-3.5 w-3.5" /><span className="hidden sm:inline">Show Data</span></>
+                    }
+                  </Button>
+                </>
+              )}
+              
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={leaveRoom}
+                className="text-xs flex items-center gap-1 rounded-full px-3 hover:bg-red-50 hover:text-red-500"
+              >
+                <LogOut className="h-3.5 w-3.5" />
+                <span className="hidden sm:inline">Leave</span>
+              </Button>
+            </>
+          )}
+        </div>
       </div>
+      
+      {showConnectionData && signalingData && (
+        <div className="mt-4 p-3 bg-gray-50 rounded-md border border-gray-200 text-sm">
+          <div className="flex justify-between items-center mb-2">
+            <h3 className="font-medium text-gray-700">Connection Data</h3>
+            <div className="flex space-x-2">
+              <Button 
+                variant="outline" 
+                size="sm" 
+                onClick={handleShareSignaling}
+                className="text-xs py-1 h-7"
+              >
+                <Copy className="h-3 w-3 mr-1" /> Copy
+              </Button>
+            </div>
+          </div>
+          <p className="text-xs text-gray-500 mb-2">Share this data with others who want to join from a different network</p>
+          <div className="bg-white p-2 rounded border border-gray-200 overflow-x-auto">
+            <pre className="text-xs text-gray-600 whitespace-pre-wrap break-all">
+              {signalingData}
+            </pre>
+          </div>
+        </div>
+      )}
     </header>
   );
 };
