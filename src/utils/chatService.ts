@@ -26,7 +26,17 @@ export const initializePeer = (userId: string, roomId: string, onData: (data: an
     // Create a new peer as the initiator
     const peer = new Peer({
       initiator: true,
-      trickle: false
+      trickle: false,
+      config: {
+        iceServers: [
+          // Public STUN servers to help with NAT traversal
+          { urls: 'stun:stun.l.google.com:19302' },
+          { urls: 'stun:stun1.l.google.com:19302' },
+          { urls: 'stun:stun2.l.google.com:19302' },
+          { urls: 'stun:stun3.l.google.com:19302' },
+          { urls: 'stun:stun4.l.google.com:19302' }
+        ]
+      }
     });
 
     // Listen for signaling data that needs to be shared with other peers
@@ -51,6 +61,11 @@ export const initializePeer = (userId: string, roomId: string, onData: (data: an
       console.error('Peer connection error:', err);
     });
 
+    // Log connection status
+    peer.on('connect', () => {
+      console.log('Peer connection established successfully');
+    });
+
     // Store the peer connection
     peerConnections.set(userId, peer);
     return peer;
@@ -66,7 +81,17 @@ export const joinPeer = (userId: string, roomId: string, signalingData: string, 
     // Create a new peer as a non-initiator
     const peer = new Peer({
       initiator: false,
-      trickle: false
+      trickle: false,
+      config: {
+        iceServers: [
+          // Public STUN servers to help with NAT traversal
+          { urls: 'stun:stun.l.google.com:19302' },
+          { urls: 'stun:stun1.l.google.com:19302' },
+          { urls: 'stun:stun2.l.google.com:19302' },
+          { urls: 'stun:stun3.l.google.com:19302' },
+          { urls: 'stun:stun4.l.google.com:19302' }
+        ]
+      }
     });
 
     // Connect to the peer using the signaling data
@@ -92,6 +117,11 @@ export const joinPeer = (userId: string, roomId: string, signalingData: string, 
     // Handle errors
     peer.on('error', (err) => {
       console.error('Peer connection error:', err);
+    });
+
+    // Log connection status
+    peer.on('connect', () => {
+      console.log('Peer connection established successfully');
     });
 
     // Store the peer connection

@@ -15,6 +15,7 @@ type PeerHandler = (data: any) => void;
 export const usePeerConnection = () => {
   const [signalingData, setSignalingData] = useState<string | null>(null);
   const [peerSupported, setPeerSupported] = useState<boolean>(true);
+  const [connectionStatus, setConnectionStatus] = useState<'disconnected' | 'connecting' | 'connected'>('disconnected');
 
   // Check if WebRTC is supported in this browser
   useEffect(() => {
@@ -45,8 +46,19 @@ export const usePeerConnection = () => {
     }
     
     try {
+      setConnectionStatus('connecting');
+      
       // Initialize the peer connection
-      initializePeer(userId, roomId, onDataHandler);
+      const peer = initializePeer(userId, roomId, onDataHandler);
+      
+      // Listen for connection events
+      peer.on('connect', () => {
+        setConnectionStatus('connected');
+      });
+      
+      peer.on('error', () => {
+        setConnectionStatus('disconnected');
+      });
       
       // Get and set the signaling data
       const sigData = getSignalingData(roomId);
@@ -57,6 +69,7 @@ export const usePeerConnection = () => {
     } catch (error) {
       console.error('Error creating peer connection:', error);
       setPeerSupported(false);
+      setConnectionStatus('disconnected');
       return false;
     }
   }, [peerSupported]);
@@ -69,11 +82,24 @@ export const usePeerConnection = () => {
     }
     
     try {
-      joinPeer(userId, roomId, connectionData, onDataHandler);
+      setConnectionStatus('connecting');
+      
+      const peer = joinPeer(userId, roomId, connectionData, onDataHandler);
+      
+      // Listen for connection events
+      peer.on('connect', () => {
+        setConnectionStatus('connected');
+      });
+      
+      peer.on('error', () => {
+        setConnectionStatus('disconnected');
+      });
+      
       return true;
     } catch (error) {
       console.error('Error joining peer connection:', error);
       setPeerSupported(false);
+      setConnectionStatus('disconnected');
       return false;
     }
   }, [peerSupported]);
@@ -99,6 +125,7 @@ export const usePeerConnection = () => {
     try {
       closeAllPeers();
       setSignalingData(null);
+      setConnectionStatus('disconnected');
     } catch (error) {
       console.error('Error closing peer connections:', error);
     }
@@ -107,6 +134,7 @@ export const usePeerConnection = () => {
   return {
     signalingData,
     peerSupported,
+    connectionStatus,
     createPeerConnection,
     joinPeerConnection,
     sendPeerData,

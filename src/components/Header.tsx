@@ -24,7 +24,7 @@ const Header: React.FC = () => {
       navigator.clipboard.writeText(signalingData);
       toast({
         title: "Connection data copied",
-        description: "Share this data with others for cross-device communication"
+        description: "Share this data with others for cross-device/network communication"
       });
     } else {
       toast({

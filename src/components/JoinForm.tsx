@@ -1,3 +1,4 @@
+
 import React, { useState, useEffect } from 'react';
 import { useChat } from '../context/ChatContext';
 import { Button } from "@/components/ui/button";
@@ -83,7 +84,7 @@ const JoinForm: React.FC = () => {
         toast({
           title: "Connection data missing",
           description: "Without connection data, you'll only see messages from users on the same device.",
-          variant: "warning"
+          variant: "default"
         });
       }
     }
