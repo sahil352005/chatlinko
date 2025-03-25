@@ -71,6 +71,13 @@ export const usePeerConnection = () => {
       peer.on('connect', () => {
         console.log('Peer connection established!');
         setConnectionStatus('connected');
+      }); 
+
+      // Listen for signaling data that needs to be shared with other peers
+      peer.on('signal', (data) => {
+        const sigData = JSON.stringify(data);
+        setSignalingData(sigData);
+        console.log('Created room with signaling data:', sigData);
       });
       
       peer.on('error', (err) => {
@@ -78,10 +85,13 @@ export const usePeerConnection = () => {
         setConnectionStatus('disconnected');
       });
       
+      // ...existing code...
+      
       peer.on('close', () => {
         console.log('Peer connection closed');
         setConnectionStatus('disconnected');
       });
+      
       
       // Get and set the signaling data
       const sigData = getSignalingData(roomId);
