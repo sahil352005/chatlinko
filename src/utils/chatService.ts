@@ -1,3 +1,4 @@
+
 import { nanoid } from 'nanoid';
 import Peer from 'simple-peer';
 
@@ -28,8 +29,13 @@ export const initializePeer = (userId: string, roomId: string, onData: (data: an
       return null;
     }
     
-    // Create a new peer as the initiator
-    const peer = new Peer({
+    // Additional safety check for browser compatibility
+    if (typeof window === 'undefined' || !window.RTCPeerConnection) {
+      console.error('Browser environment not fully compatible with WebRTC');
+      return null;
+    }
+    
+    const config = {
       initiator: true,
       trickle: false,
       config: {
@@ -37,35 +43,41 @@ export const initializePeer = (userId: string, roomId: string, onData: (data: an
           // Public STUN servers to help with NAT traversal
           { urls: 'stun:stun.l.google.com:19302' },
           { urls: 'stun:stun1.l.google.com:19302' },
-          { urls: 'stun:stun2.l.google.com:19302' },
-          { urls: 'stun:stun3.l.google.com:19302' },
-          { urls: 'stun:stun4.l.google.com:19302' },
-          // Add additional STUN/TURN servers for better NAT traversal
+          // Add a couple more but avoid adding too many which can cause issues
           { urls: 'stun:openrelay.metered.ca:80' },
           {
             urls: 'turn:openrelay.metered.ca:80',
             username: 'openrelayproject',
             credential: 'openrelayproject'
-          },
-          {
-            urls: 'turn:openrelay.metered.ca:443',
-            username: 'openrelayproject',
-            credential: 'openrelayproject'
-          },
-          {
-            urls: 'turn:openrelay.metered.ca:443?transport=tcp',
-            username: 'openrelayproject',
-            credential: 'openrelayproject'
           }
         ]
+      },
+      // Disable any media requirements to prevent getUserMedia issues
+      streams: [], 
+      offerConstraints: {
+        offerToReceiveAudio: false,
+        offerToReceiveVideo: false
       }
-    });
+    };
+    
+    console.log('Creating peer with config:', JSON.stringify(config));
+    
+    // Create a new peer as the initiator with safety wrapper
+    let peer;
+    try {
+      peer = new Peer(config);
+      console.log('Peer initialized successfully');
+    } catch (e) {
+      console.error('Error initializing peer:', e);
+      return null;
+    }
 
     // Listen for signaling data that needs to be shared with other peers
     peer.on('signal', (data) => {
       // Store the signaling data for this room
-      peerSignalingData.set(roomId, JSON.stringify(data));
-      console.log('Created room with signaling data');
+      const sigDataStr = JSON.stringify(data);
+      peerSignalingData.set(roomId, sigDataStr);
+      console.log('Created room with signaling data, length:', sigDataStr.length);
     });
 
     // Handle incoming data from connected peers
@@ -92,7 +104,7 @@ export const initializePeer = (userId: string, roomId: string, onData: (data: an
     peerConnections.set(userId, peer);
     return peer;
   } catch (error) {
-    console.error('Error initializing peer:', error);
+    console.error('Error in initializePeer:', error);
     return null;
   }
 };
@@ -106,42 +118,50 @@ export const joinPeer = (userId: string, roomId: string, signalingData: string, 
       return null;
     }
     
-    // Create a new peer as a non-initiator
-    const peer = new Peer({
+    // Additional safety check for browser compatibility
+    if (typeof window === 'undefined' || !window.RTCPeerConnection) {
+      console.error('Browser environment not fully compatible with WebRTC');
+      return null;
+    }
+    
+    const config = {
       initiator: false,
       trickle: false,
       config: {
         iceServers: [
-          // Public STUN servers to help with NAT traversal
+          // Use fewer STUN/TURN servers to reduce complexity
           { urls: 'stun:stun.l.google.com:19302' },
           { urls: 'stun:stun1.l.google.com:19302' },
-          { urls: 'stun:stun2.l.google.com:19302' },
-          { urls: 'stun:stun3.l.google.com:19302' },
-          { urls: 'stun:stun4.l.google.com:19302' },
-          // Add additional STUN/TURN servers for better NAT traversal
           { urls: 'stun:openrelay.metered.ca:80' },
           {
             urls: 'turn:openrelay.metered.ca:80',
             username: 'openrelayproject',
             credential: 'openrelayproject'
-          },
-          {
-            urls: 'turn:openrelay.metered.ca:443',
-            username: 'openrelayproject',
-            credential: 'openrelayproject'
-          },
-          {
-            urls: 'turn:openrelay.metered.ca:443?transport=tcp',
-            username: 'openrelayproject',
-            credential: 'openrelayproject'
           }
         ]
+      },
+      // Disable any media requirements to prevent getUserMedia issues
+      streams: [],
+      offerConstraints: {
+        offerToReceiveAudio: false,
+        offerToReceiveVideo: false
       }
-    });
+    };
+    
+    // Create a new peer as a non-initiator with safety wrapper
+    let peer;
+    try {
+      peer = new Peer(config);
+      console.log('Joiner peer initialized successfully');
+    } catch (e) {
+      console.error('Error initializing joiner peer:', e);
+      return null;
+    }
 
     // Connect to the peer using the signaling data
     try {
-      peer.signal(JSON.parse(signalingData));
+      const sigData = JSON.parse(signalingData);
+      peer.signal(sigData);
     } catch (e) {
       console.error('Invalid signaling data:', e);
       return null;
@@ -149,7 +169,6 @@ export const joinPeer = (userId: string, roomId: string, signalingData: string, 
 
     // Listen for our own signaling data to send back to the initiator
     peer.on('signal', (data) => {
-      // This data needs to be manually shared with the initiator
       console.log('Generated answer signal');
     });
 
@@ -177,7 +196,7 @@ export const joinPeer = (userId: string, roomId: string, signalingData: string, 
     peerConnections.set(userId, peer);
     return peer;
   } catch (error) {
-    console.error('Error joining peer:', error);
+    console.error('Error in joinPeer:', error);
     return null;
   }
 };
@@ -199,7 +218,13 @@ export const sendPeerMessage = (userId: string, message: PeerMessage): void => {
 
 // Get signaling data for a room
 export const getSignalingData = (roomId: string): string | null => {
-  return peerSignalingData.get(roomId) || null;
+  const data = peerSignalingData.get(roomId);
+  if (data) {
+    console.log(`Retrieved signaling data for room ${roomId}, length:`, data.length);
+  } else {
+    console.warn(`No signaling data found for room ${roomId}`);
+  }
+  return data || null;
 };
 
 // Close all peer connections

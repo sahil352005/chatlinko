@@ -28,12 +28,18 @@ export const usePeerConnection = () => {
           return false;
         }
         
-        // The simple-peer library uses these browser APIs, check if they're available
+        // Check for other required WebRTC APIs
         if (typeof window.RTCPeerConnection !== 'function' || 
             typeof window.RTCSessionDescription !== 'function') {
           console.warn('Required WebRTC APIs are not available');
           setPeerSupported(false);
           return false;
+        }
+
+        // Check for getUserMedia which is used by simple-peer in some cases
+        if (!navigator.mediaDevices || typeof navigator.mediaDevices.getUserMedia !== 'function') {
+          console.warn('Media devices API is not fully supported, but we\'ll try to continue');
+          // We don't set peerSupported to false here, just warn
         }
         
         return true;
@@ -57,11 +63,11 @@ export const usePeerConnection = () => {
     try {
       setConnectionStatus('connecting');
       
-      // Initialize the peer connection
+      // Initialize the peer connection with better error handling
       const peer = initializePeer(userId, roomId, onDataHandler);
       
       if (!peer) {
-        console.error('Failed to initialize peer');
+        console.error('Failed to initialize peer connection');
         setPeerSupported(false);
         setConnectionStatus('disconnected');
         return false;
@@ -77,7 +83,7 @@ export const usePeerConnection = () => {
       peer.on('signal', (data) => {
         const sigData = JSON.stringify(data);
         setSignalingData(sigData);
-        console.log('Created room with signaling data:', sigData);
+        console.log('Created room with signaling data:', sigData.substring(0, 50) + '...');
       });
       
       peer.on('error', (err) => {
@@ -90,16 +96,16 @@ export const usePeerConnection = () => {
         setConnectionStatus('disconnected');
       });
       
-      // Get and set the signaling data immediately
+      // Get and set the signaling data immediately with a timeout to ensure it's available
       setTimeout(() => {
         const sigData = getSignalingData(roomId);
         if (sigData) {
-          console.log('Setting signalingData from getSignalingData:', sigData);
+          console.log('Setting signalingData from getSignalingData:', sigData.substring(0, 50) + '...');
           setSignalingData(sigData);
         } else {
           console.warn('No signaling data available for room:', roomId);
         }
-      }, 500); // Short delay to ensure signaling data is ready
+      }, 800); // Increased delay to ensure signaling data is ready
       
       return true;
     } catch (error) {
@@ -183,7 +189,11 @@ export const usePeerConnection = () => {
 
   // For debugging purposes, log the signalingData whenever it changes
   useEffect(() => {
-    console.log('Current signalingData:', signalingData);
+    if (signalingData) {
+      console.log('Current signalingData available, length:', signalingData.length);
+    } else {
+      console.log('Current signalingData: null');
+    }
   }, [signalingData]);
 
   return {
