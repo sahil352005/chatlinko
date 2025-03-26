@@ -21,25 +21,22 @@ export const usePeerConnection = () => {
   useEffect(() => {
     const checkPeerSupport = () => {
       try {
-        // Check if RTCPeerConnection is available (core WebRTC API)
-        if (typeof RTCPeerConnection === 'undefined') {
-          console.warn('WebRTC is not supported in this browser');
+        // Basic WebRTC API availability check
+        if (typeof window === 'undefined' || typeof RTCPeerConnection === 'undefined') {
+          console.warn('WebRTC API is not available in this browser');
           setPeerSupported(false);
           return false;
         }
         
-        // Check for other required WebRTC APIs
-        if (typeof window.RTCPeerConnection !== 'function' || 
-            typeof window.RTCSessionDescription !== 'function') {
-          console.warn('Required WebRTC APIs are not available');
+        // Test creating an RTCPeerConnection to catch early errors
+        try {
+          const testConnection = new RTCPeerConnection();
+          testConnection.close();
+          console.log('RTCPeerConnection test successful');
+        } catch (err) {
+          console.warn('Failed to create test RTCPeerConnection:', err);
           setPeerSupported(false);
           return false;
-        }
-
-        // Check for getUserMedia which is used by simple-peer in some cases
-        if (!navigator.mediaDevices || typeof navigator.mediaDevices.getUserMedia !== 'function') {
-          console.warn('Media devices API is not fully supported, but we\'ll try to continue');
-          // We don't set peerSupported to false here, just warn
         }
         
         return true;
@@ -62,6 +59,7 @@ export const usePeerConnection = () => {
     
     try {
       setConnectionStatus('connecting');
+      console.log('Attempting to create peer connection...');
       
       // Initialize the peer connection with better error handling
       const peer = initializePeer(userId, roomId, onDataHandler);
@@ -73,6 +71,8 @@ export const usePeerConnection = () => {
         return false;
       }
       
+      console.log('Peer connection object created successfully');
+      
       // Listen for connection events
       peer.on('connect', () => {
         console.log('Peer connection established!');
@@ -82,8 +82,8 @@ export const usePeerConnection = () => {
       // Listen for signaling data that needs to be shared with other peers
       peer.on('signal', (data) => {
         const sigData = JSON.stringify(data);
+        console.log('Received signal data, length:', sigData.length);
         setSignalingData(sigData);
-        console.log('Created room with signaling data:', sigData.substring(0, 50) + '...');
       });
       
       peer.on('error', (err) => {
@@ -96,16 +96,24 @@ export const usePeerConnection = () => {
         setConnectionStatus('disconnected');
       });
       
-      // Get and set the signaling data immediately with a timeout to ensure it's available
-      setTimeout(() => {
+      // Check for signaling data more frequently with multiple attempts
+      const checkForSignalingData = () => {
         const sigData = getSignalingData(roomId);
         if (sigData) {
-          console.log('Setting signalingData from getSignalingData:', sigData.substring(0, 50) + '...');
+          console.log('Setting signalingData from getSignalingData, length:', sigData.length);
           setSignalingData(sigData);
-        } else {
-          console.warn('No signaling data available for room:', roomId);
+          return true;
         }
-      }, 800); // Increased delay to ensure signaling data is ready
+        return false;
+      };
+      
+      // Try immediately
+      if (!checkForSignalingData()) {
+        // Try again after short delay
+        setTimeout(checkForSignalingData, 500);
+        // And again after a longer delay
+        setTimeout(checkForSignalingData, 1500);
+      }
       
       return true;
     } catch (error) {

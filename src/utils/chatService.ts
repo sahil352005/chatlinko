@@ -1,4 +1,3 @@
-
 import { nanoid } from 'nanoid';
 import Peer from 'simple-peer';
 
@@ -20,67 +19,68 @@ export const generateUserId = (): string => {
   return nanoid();
 };
 
+// Helper function to check WebRTC compatibility
+const checkWebRTCSupport = (): boolean => {
+  try {
+    // Basic check for required WebRTC APIs
+    return typeof window !== 'undefined' && 
+           typeof window.RTCPeerConnection === 'function' && 
+           typeof RTCSessionDescription === 'function';
+  } catch (err) {
+    console.error('WebRTC support check failed:', err);
+    return false;
+  }
+};
+
 // Initialize a peer connection as the room creator
 export const initializePeer = (userId: string, roomId: string, onData: (data: any) => void): Peer.Instance | null => {
   try {
-    // Check for WebRTC support
-    if (typeof window.RTCPeerConnection !== 'function') {
-      console.error('RTCPeerConnection is not supported in this browser');
+    // First check if WebRTC is supported
+    if (!checkWebRTCSupport()) {
+      console.error('WebRTC is not supported in this browser');
       return null;
     }
     
-    // Additional safety check for browser compatibility
-    if (typeof window === 'undefined' || !window.RTCPeerConnection) {
-      console.error('Browser environment not fully compatible with WebRTC');
-      return null;
-    }
+    console.log('Browser supports WebRTC, creating peer connection...');
     
+    // Use a simpler configuration with minimal options to reduce potential issues
     const config = {
       initiator: true,
       trickle: false,
+      // Simplified ICE server config
       config: {
         iceServers: [
-          // Public STUN servers to help with NAT traversal
-          { urls: 'stun:stun.l.google.com:19302' },
-          { urls: 'stun:stun1.l.google.com:19302' },
-          // Add a couple more but avoid adding too many which can cause issues
-          { urls: 'stun:openrelay.metered.ca:80' },
-          {
-            urls: 'turn:openrelay.metered.ca:80',
-            username: 'openrelayproject',
-            credential: 'openrelayproject'
-          }
+          { urls: 'stun:stun.l.google.com:19302' }
         ]
       },
-      // Disable any media requirements to prevent getUserMedia issues
-      streams: [], 
+      // Explicitly set wrtc to undefined to ensure browser's native implementation is used
+      wrtc: undefined,
+      // No media stream requirements
       offerConstraints: {
         offerToReceiveAudio: false,
         offerToReceiveVideo: false
       }
     };
     
-    console.log('Creating peer with config:', JSON.stringify(config));
+    console.log('Creating peer with simplified config');
     
-    // Create a new peer as the initiator with safety wrapper
+    // Wrap peer creation in try-catch for better error handling
     let peer;
     try {
       peer = new Peer(config);
-      console.log('Peer initialized successfully');
+      console.log('Peer object created successfully');
     } catch (e) {
-      console.error('Error initializing peer:', e);
+      console.error('Error creating Peer object:', e);
       return null;
     }
 
-    // Listen for signaling data that needs to be shared with other peers
+    // Setup event handlers
     peer.on('signal', (data) => {
-      // Store the signaling data for this room
       const sigDataStr = JSON.stringify(data);
       peerSignalingData.set(roomId, sigDataStr);
-      console.log('Created room with signaling data, length:', sigDataStr.length);
+      console.log('Generated signaling data for room:', roomId);
     });
 
-    // Handle incoming data from connected peers
     peer.on('data', (data) => {
       try {
         const message = JSON.parse(data.toString());
@@ -90,12 +90,10 @@ export const initializePeer = (userId: string, roomId: string, onData: (data: an
       }
     });
 
-    // Handle errors
     peer.on('error', (err) => {
       console.error('Peer connection error:', err);
     });
 
-    // Log connection status
     peer.on('connect', () => {
       console.log('Peer connection established successfully');
     });
@@ -104,7 +102,7 @@ export const initializePeer = (userId: string, roomId: string, onData: (data: an
     peerConnections.set(userId, peer);
     return peer;
   } catch (error) {
-    console.error('Error in initializePeer:', error);
+    console.error('Fatal error in initializePeer:', error);
     return null;
   }
 };
@@ -112,67 +110,56 @@ export const initializePeer = (userId: string, roomId: string, onData: (data: an
 // Join an existing peer connection using the signaling data
 export const joinPeer = (userId: string, roomId: string, signalingData: string, onData: (data: any) => void): Peer.Instance | null => {
   try {
-    // Check for WebRTC support
-    if (typeof window.RTCPeerConnection !== 'function') {
-      console.error('RTCPeerConnection is not supported in this browser');
+    // First check if WebRTC is supported
+    if (!checkWebRTCSupport()) {
+      console.error('WebRTC is not supported in this browser');
       return null;
     }
     
-    // Additional safety check for browser compatibility
-    if (typeof window === 'undefined' || !window.RTCPeerConnection) {
-      console.error('Browser environment not fully compatible with WebRTC');
-      return null;
-    }
+    console.log('Browser supports WebRTC, joining peer connection...');
     
+    // Simpler configuration for joining peer
     const config = {
       initiator: false,
       trickle: false,
       config: {
         iceServers: [
-          // Use fewer STUN/TURN servers to reduce complexity
-          { urls: 'stun:stun.l.google.com:19302' },
-          { urls: 'stun:stun1.l.google.com:19302' },
-          { urls: 'stun:openrelay.metered.ca:80' },
-          {
-            urls: 'turn:openrelay.metered.ca:80',
-            username: 'openrelayproject',
-            credential: 'openrelayproject'
-          }
+          { urls: 'stun:stun.l.google.com:19302' }
         ]
       },
-      // Disable any media requirements to prevent getUserMedia issues
-      streams: [],
+      // Explicitly set wrtc to undefined
+      wrtc: undefined,
       offerConstraints: {
         offerToReceiveAudio: false,
         offerToReceiveVideo: false
       }
     };
     
-    // Create a new peer as a non-initiator with safety wrapper
+    // Wrap peer creation in try-catch
     let peer;
     try {
       peer = new Peer(config);
-      console.log('Joiner peer initialized successfully');
+      console.log('Joiner peer created successfully');
     } catch (e) {
-      console.error('Error initializing joiner peer:', e);
+      console.error('Error creating joiner peer:', e);
       return null;
     }
 
-    // Connect to the peer using the signaling data
+    // Connect using the provided signaling data
     try {
       const sigData = JSON.parse(signalingData);
       peer.signal(sigData);
+      console.log('Applied signaling data from room creator');
     } catch (e) {
-      console.error('Invalid signaling data:', e);
+      console.error('Invalid signaling data format:', e);
       return null;
     }
 
-    // Listen for our own signaling data to send back to the initiator
+    // Setup event handlers
     peer.on('signal', (data) => {
       console.log('Generated answer signal');
     });
 
-    // Handle incoming data
     peer.on('data', (data) => {
       try {
         const message = JSON.parse(data.toString());
@@ -182,12 +169,10 @@ export const joinPeer = (userId: string, roomId: string, signalingData: string, 
       }
     });
 
-    // Handle errors
     peer.on('error', (err) => {
       console.error('Peer connection error:', err);
     });
 
-    // Log connection status
     peer.on('connect', () => {
       console.log('Peer connection established successfully');
     });
@@ -196,7 +181,7 @@ export const joinPeer = (userId: string, roomId: string, signalingData: string, 
     peerConnections.set(userId, peer);
     return peer;
   } catch (error) {
-    console.error('Error in joinPeer:', error);
+    console.error('Fatal error in joinPeer:', error);
     return null;
   }
 };
