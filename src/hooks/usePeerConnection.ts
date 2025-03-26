@@ -21,24 +21,12 @@ export const usePeerConnection = () => {
   useEffect(() => {
     const checkPeerSupport = () => {
       try {
-        // Basic WebRTC API availability check
+        // Simple check for RTCPeerConnection availability
         if (typeof window === 'undefined' || typeof RTCPeerConnection === 'undefined') {
           console.warn('WebRTC API is not available in this browser');
           setPeerSupported(false);
           return false;
         }
-        
-        // Test creating an RTCPeerConnection to catch early errors
-        try {
-          const testConnection = new RTCPeerConnection();
-          testConnection.close();
-          console.log('RTCPeerConnection test successful');
-        } catch (err) {
-          console.warn('Failed to create test RTCPeerConnection:', err);
-          setPeerSupported(false);
-          return false;
-        }
-        
         return true;
       } catch (error) {
         console.error('Error checking WebRTC support:', error);
@@ -61,7 +49,7 @@ export const usePeerConnection = () => {
       setConnectionStatus('connecting');
       console.log('Attempting to create peer connection...');
       
-      // Initialize the peer connection with better error handling
+      // Initialize the peer connection
       const peer = initializePeer(userId, roomId, onDataHandler);
       
       if (!peer) {
@@ -96,24 +84,18 @@ export const usePeerConnection = () => {
         setConnectionStatus('disconnected');
       });
       
-      // Check for signaling data more frequently with multiple attempts
-      const checkForSignalingData = () => {
+      // Check for signaling data repeatedly
+      const checkSignalingInterval = setInterval(() => {
         const sigData = getSignalingData(roomId);
         if (sigData) {
           console.log('Setting signalingData from getSignalingData, length:', sigData.length);
           setSignalingData(sigData);
-          return true;
+          clearInterval(checkSignalingInterval);
         }
-        return false;
-      };
+      }, 500);
       
-      // Try immediately
-      if (!checkForSignalingData()) {
-        // Try again after short delay
-        setTimeout(checkForSignalingData, 500);
-        // And again after a longer delay
-        setTimeout(checkForSignalingData, 1500);
-      }
+      // Clear interval after a reasonable time to avoid memory leaks
+      setTimeout(() => clearInterval(checkSignalingInterval), 10000);
       
       return true;
     } catch (error) {

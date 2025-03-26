@@ -1,3 +1,4 @@
+
 import { nanoid } from 'nanoid';
 import Peer from 'simple-peer';
 
@@ -24,7 +25,7 @@ const checkWebRTCSupport = (): boolean => {
   try {
     // Basic check for required WebRTC APIs
     return typeof window !== 'undefined' && 
-           typeof window.RTCPeerConnection === 'function' && 
+           typeof RTCPeerConnection === 'function' && 
            typeof RTCSessionDescription === 'function';
   } catch (err) {
     console.error('WebRTC support check failed:', err);
@@ -43,36 +44,22 @@ export const initializePeer = (userId: string, roomId: string, onData: (data: an
     
     console.log('Browser supports WebRTC, creating peer connection...');
     
-    // Use a simpler configuration with minimal options to reduce potential issues
+    // Create a minimal config to reduce errors
     const config = {
       initiator: true,
       trickle: false,
-      // Simplified ICE server config
       config: {
         iceServers: [
           { urls: 'stun:stun.l.google.com:19302' }
         ]
-      },
-      // Explicitly set wrtc to undefined to ensure browser's native implementation is used
-      wrtc: undefined,
-      // No media stream requirements
-      offerConstraints: {
-        offerToReceiveAudio: false,
-        offerToReceiveVideo: false
       }
     };
     
     console.log('Creating peer with simplified config');
     
-    // Wrap peer creation in try-catch for better error handling
-    let peer;
-    try {
-      peer = new Peer(config);
-      console.log('Peer object created successfully');
-    } catch (e) {
-      console.error('Error creating Peer object:', e);
-      return null;
-    }
+    // Create the peer
+    const peer = new Peer(config);
+    console.log('Peer object created successfully');
 
     // Setup event handlers
     peer.on('signal', (data) => {
@@ -126,24 +113,12 @@ export const joinPeer = (userId: string, roomId: string, signalingData: string, 
         iceServers: [
           { urls: 'stun:stun.l.google.com:19302' }
         ]
-      },
-      // Explicitly set wrtc to undefined
-      wrtc: undefined,
-      offerConstraints: {
-        offerToReceiveAudio: false,
-        offerToReceiveVideo: false
       }
     };
     
-    // Wrap peer creation in try-catch
-    let peer;
-    try {
-      peer = new Peer(config);
-      console.log('Joiner peer created successfully');
-    } catch (e) {
-      console.error('Error creating joiner peer:', e);
-      return null;
-    }
+    // Create the peer
+    const peer = new Peer(config);
+    console.log('Joiner peer created successfully');
 
     // Connect using the provided signaling data
     try {
