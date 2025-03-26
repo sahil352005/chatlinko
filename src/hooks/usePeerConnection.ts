@@ -85,19 +85,22 @@ export const usePeerConnection = () => {
         setConnectionStatus('disconnected');
       });
       
-      // ...existing code...
-      
       peer.on('close', () => {
         console.log('Peer connection closed');
         setConnectionStatus('disconnected');
       });
       
+      // Get and set the signaling data immediately
+      setTimeout(() => {
+        const sigData = getSignalingData(roomId);
+        if (sigData) {
+          console.log('Setting signalingData from getSignalingData:', sigData);
+          setSignalingData(sigData);
+        } else {
+          console.warn('No signaling data available for room:', roomId);
+        }
+      }, 500); // Short delay to ensure signaling data is ready
       
-      // Get and set the signaling data
-      const sigData = getSignalingData(roomId);
-      if (sigData) {
-        setSignalingData(sigData);
-      }
       return true;
     } catch (error) {
       console.error('Error creating peer connection:', error);
@@ -177,6 +180,11 @@ export const usePeerConnection = () => {
       console.error('Error closing peer connections:', error);
     }
   }, [peerSupported]);
+
+  // For debugging purposes, log the signalingData whenever it changes
+  useEffect(() => {
+    console.log('Current signalingData:', signalingData);
+  }, [signalingData]);
 
   return {
     signalingData,

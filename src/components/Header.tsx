@@ -1,5 +1,5 @@
 
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useChat } from '../context/ChatContext';
 import { Button } from "@/components/ui/button";
 import { Share, Users, LogOut, Wifi, WifiOff, Copy, Eye, EyeOff, Link as LinkIcon } from 'lucide-react';
@@ -8,6 +8,17 @@ import { toast } from "@/hooks/use-toast";
 const Header: React.FC = () => {
   const { roomId, leaveRoom, users, signalingData, connectionStatus } = useChat();
   const [showConnectionData, setShowConnectionData] = useState(false);
+  const [hasSignalingData, setHasSignalingData] = useState(false);
+
+  // Monitor signalingData changes to update UI visibility
+  useEffect(() => {
+    if (signalingData) {
+      console.log("Header detected signalingData:", signalingData.substring(0, 20) + "...");
+      setHasSignalingData(true);
+    } else {
+      setHasSignalingData(false);
+    }
+  }, [signalingData]);
 
   const handleShareLink = () => {
     if (roomId) {
@@ -37,7 +48,7 @@ const Header: React.FC = () => {
   };
 
   const getConnectionStatusDisplay = () => {
-    if (!signalingData) return null;
+    if (!hasSignalingData) return null;
     
     return (
       <span className={`ml-2 text-xs px-1.5 py-0.5 rounded-full flex items-center ${
@@ -95,7 +106,7 @@ const Header: React.FC = () => {
                 <span className="hidden sm:inline">Share Link</span>
               </Button>
               
-              {signalingData && (
+              {hasSignalingData && (
                 <>
                   <Button
                     variant="outline"
@@ -159,13 +170,13 @@ const Header: React.FC = () => {
         </div>
       )}
 
-      {!showConnectionData && signalingData && (
+      {!showConnectionData && hasSignalingData && (
         <div className="w-full mt-2 flex justify-center">
           <Button
             variant="ghost"
             size="sm"
             onClick={toggleShowConnectionData}
-            className="bg-blue-50 text-blue-600 hover:bg-blue-100 text-xs py-1.5 flex items-center gap-1 rounded-full px-4 animate-pulse"
+            className="bg-blue-100 text-blue-600 hover:bg-blue-200 text-xs py-1.5 flex items-center gap-1 rounded-full px-4 animate-pulse shadow-sm"
           >
             <LinkIcon className="h-3.5 w-3.5" />
             <span>Show connection data for cross-network chat</span>
