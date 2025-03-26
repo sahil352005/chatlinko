@@ -1,5 +1,6 @@
+
 import React, { createContext, useContext, useEffect, useState, useCallback } from 'react';
-import { generateRoomId } from '../utils/chatService';
+import { generateRoomId, checkWebRTCSupport } from '../utils/chatService';
 import { setupBroadcastChannel, sendBroadcastMessage } from '../utils/broadcastChannel';
 import { usePeerConnection } from '../hooks/usePeerConnection';
 import { createUser } from '../utils/userUtils';
@@ -17,6 +18,7 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const [roomId, setRoomId] = useState<string | null>(null);
   const [isConnected, setIsConnected] = useState(false);
   const [broadcastChannel, setBroadcastChannel] = useState<BroadcastChannel | null>(null);
+  const [webRTCSupported, setWebRTCSupported] = useState<boolean>(true);
 
   // Use our custom hook for peer connections
   const { 
@@ -28,6 +30,16 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
     sendPeerData, 
     closePeerConnections 
   } = usePeerConnection();
+
+  // Check for WebRTC support on component mount
+  useEffect(() => {
+    const isSupported = checkWebRTCSupport();
+    setWebRTCSupported(isSupported);
+    
+    if (!isSupported) {
+      console.warn('WebRTC is not supported in this browser. Will use BroadcastChannel only.');
+    }
+  }, []);
 
   // Handler for peer and broadcast messages
   const handleDataReceived = useCallback((data: any) => {
@@ -77,12 +89,22 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
     setRoomId(newRoomId);
     setUsers([newUser]);
     
-    if (peerSupported) {
-      createPeerConnection(newUser.id, newRoomId, handleDataReceived);
+    // Attempt to use WebRTC if supported
+    if (webRTCSupported && peerSupported) {
+      const created = createPeerConnection(newUser.id, newRoomId, handleDataReceived);
+      if (!created) {
+        console.warn('Failed to create WebRTC peer connection, falling back to BroadcastChannel only');
+        toast({
+          title: "Limited functionality",
+          description: "WebRTC initialization failed. Communication limited to this device only.",
+          variant: "destructive"
+        });
+      }
     } else {
       console.log('WebRTC not supported, using BroadcastChannel only');
     }
     
+    // Always set up BroadcastChannel for same-device communication
     const { channel } = setupBroadcastChannel(
       newRoomId,
       newUser,
@@ -94,7 +116,7 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
     setBroadcastChannel(channel);
     setIsConnected(true);
     return newRoomId;
-  }, [createPeerConnection, handleDataReceived, peerSupported]);
+  }, [createPeerConnection, handleDataReceived, peerSupported, webRTCSupported]);
 
   // Join an existing room
   const joinRoom = useCallback((roomId: string, userName: string) => {
@@ -125,13 +147,10 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
     if (!user || !roomId) return;
     
     try {
-      if (peerSupported) {
+      if (webRTCSupported && peerSupported) {
         const success = joinPeerConnection(user.id, roomId, data, handleDataReceived);
         
         if (success) {
-          sendPeerData(user.id, 'USER_JOINED', user);
-          sendPeerData(user.id, 'REQUEST_USERS', { userId: user.id });
-          
           toast({
             title: "Connection initiated",
             description: "Attempting to establish WebRTC connection..."
@@ -158,7 +177,7 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
         variant: "destructive"
       });
     }
-  }, [user, roomId, joinPeerConnection, handleDataReceived, sendPeerData, peerSupported]);
+  }, [user, roomId, joinPeerConnection, handleDataReceived, peerSupported, webRTCSupported]);
 
   // Monitor connection status changes
   useEffect(() => {
@@ -167,8 +186,14 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
         title: "Connected successfully",
         description: "You're now connected with other users via WebRTC"
       });
+      
+      // Send user info and request other users once connected
+      if (user) {
+        sendPeerData(user.id, 'USER_JOINED', user);
+        sendPeerData(user.id, 'REQUEST_USERS', { userId: user.id });
+      }
     }
-  }, [connectionStatus]);
+  }, [connectionStatus, sendPeerData, user]);
 
   // Leave room
   const leaveRoom = useCallback(() => {
@@ -204,14 +229,14 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
     
     setMessages(prev => [...prev, newMessage]);
     
-    if (peerSupported) {
+    if (peerSupported && connectionStatus === 'connected') {
       sendPeerData(user.id, 'NEW_MESSAGE', newMessage);
     }
     
     if (broadcastChannel) {
       sendBroadcastMessage(broadcastChannel, 'NEW_MESSAGE', newMessage);
     }
-  }, [user, roomId, broadcastChannel, sendPeerData, peerSupported]);
+  }, [user, roomId, broadcastChannel, sendPeerData, peerSupported, connectionStatus]);
 
   // Context value
   const value = {
