@@ -4,7 +4,7 @@ import { useChat } from '../context/ChatContext';
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
-import { ArrowRight, PlusCircle, Link2, Info } from 'lucide-react';
+import { ArrowRight, PlusCircle, Link2, Info, Users } from 'lucide-react';
 import { toast } from "@/hooks/use-toast";
 
 const JoinForm: React.FC = () => {
@@ -25,6 +25,8 @@ const JoinForm: React.FC = () => {
     if (roomIdParam) {
       setRoomId(roomIdParam);
       setJoinMode('join');
+      // Always show signaling input when joining via URL to make it more obvious
+      setShowSignalingInput(true);
     }
   }, []);
 
@@ -73,6 +75,10 @@ const JoinForm: React.FC = () => {
         // Connect using the provided signaling data
         setTimeout(() => {
           connectWithSignalingData(signalingData.trim());
+          toast({
+            title: "Connecting...",
+            description: "Attempting to connect with the other user. This may take a moment."
+          });
         }, 1000);
       } else if (!isWebRTCSupported()) {
         toast({
@@ -116,7 +122,14 @@ const JoinForm: React.FC = () => {
       {joinMode === 'join' && !showSignalingInput && (
         <div className="mb-4 p-3 bg-blue-50 border border-blue-200 rounded-md text-sm text-blue-800">
           <p className="font-medium mb-1 flex items-center"><Info className="h-4 w-4 mr-1" /> Cross-Network Instructions</p>
-          <p>To chat with someone on a different network, click <b>"Enter connection data"</b> below and paste the data shared by the room creator.</p>
+          <p><b>IMPORTANT:</b> To chat with someone on a different network, you <b>must</b> click <b>"Enter connection data"</b> below and paste the data shared by the room creator.</p>
+        </div>
+      )}
+      
+      {joinMode === 'join' && showSignalingInput && !signalingData && (
+        <div className="mb-4 p-3 bg-red-50 border border-red-200 rounded-md text-sm text-red-800">
+          <p className="font-medium mb-1 flex items-center"><Info className="h-4 w-4 mr-1" /> Required Connection Data</p>
+          <p><b>YOU MUST</b> paste the connection data from the room creator below or you won't be able to connect!</p>
         </div>
       )}
       
@@ -151,32 +164,30 @@ const JoinForm: React.FC = () => {
               className="input-field"
             />
             
-            {joinMode === 'join' && (
-              <div className="mt-3">
-                <button 
-                  type="button" 
-                  onClick={() => setShowSignalingInput(!showSignalingInput)}
-                  className="text-sm text-primary/80 hover:text-primary mb-2 flex items-center"
-                >
-                  <Link2 className="h-3.5 w-3.5 mr-1" />
-                  {showSignalingInput ? 'Hide connection data' : 'Enter connection data'}
-                </button>
-                
-                {showSignalingInput && (
-                  <>
-                    <Textarea
-                      value={signalingData}
-                      onChange={(e) => setSignalingData(e.target.value)}
-                      placeholder="Paste the connection data from the room creator"
-                      className="h-24 text-xs"
-                    />
-                    <p className="text-xs text-gray-500 mt-1">
-                      For cross-network communication, this data is required
-                    </p>
-                  </>
-                )}
-              </div>
-            )}
+            <div className="mt-3">
+              <button 
+                type="button" 
+                onClick={() => setShowSignalingInput(!showSignalingInput)}
+                className="text-sm text-primary/80 hover:text-primary mb-2 flex items-center"
+              >
+                <Link2 className="h-3.5 w-3.5 mr-1" />
+                {showSignalingInput ? 'Hide connection data' : 'Enter connection data'}
+              </button>
+              
+              {showSignalingInput && (
+                <>
+                  <Textarea
+                    value={signalingData}
+                    onChange={(e) => setSignalingData(e.target.value)}
+                    placeholder="Paste the connection data from the room creator"
+                    className="h-24 text-xs"
+                  />
+                  <p className="text-xs font-medium text-red-600 mt-1">
+                    This connection data is REQUIRED for cross-network chat!
+                  </p>
+                </>
+              )}
+            </div>
           </div>
         )}
         
@@ -210,8 +221,8 @@ const JoinForm: React.FC = () => {
                 Copy
               </Button>
             </div>
-            <p className="text-xs text-gray-500 mb-2">
-              <b>IMPORTANT:</b> Share this connection data with anyone who wants to join from a different network
+            <p className="text-xs text-red-600 mb-2 font-medium">
+              <b>IMPORTANT:</b> You MUST share this connection data with anyone who wants to join
             </p>
             <div className="bg-white p-2 rounded border text-xs overflow-auto max-h-24 font-mono">
               {peerSignalingData}
