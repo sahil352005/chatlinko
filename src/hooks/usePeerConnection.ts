@@ -4,6 +4,7 @@ import {
   checkWebRTCSupport,
   getSignalingData,
   storeSignalingData,
+  clearSignalingData,
   PeerMessage
 } from '../utils/chatService';
 
@@ -19,6 +20,7 @@ export const usePeerConnection = () => {
   const peerConnectionRef = useRef<RTCPeerConnection | null>(null);
   const dataChannelRef = useRef<RTCDataChannel | null>(null);
   const onDataHandlerRef = useRef<PeerHandler | null>(null);
+  const connectionTimeoutRef = useRef<NodeJS.Timeout | null>(null);
 
   // Check if WebRTC is supported in this browser
   useEffect(() => {
@@ -35,6 +37,9 @@ export const usePeerConnection = () => {
         dataChannelRef.current.close();
         dataChannelRef.current = null;
       }
+      if (connectionTimeoutRef.current) {
+        clearTimeout(connectionTimeoutRef.current);
+      }
     };
   }, []);
 
@@ -43,17 +48,22 @@ export const usePeerConnection = () => {
     if (!peerSupported) return null;
     
     try {
+      console.log('Browser supports WebRTC, creating peer connection...');
+      
+      // Simplified configuration with multiple STUN servers for better connectivity
       const iceServers = [
-        { urls: 'stun:stun.l.google.com:19302' }
+        { urls: 'stun:stun.l.google.com:19302' },
+        { urls: 'stun:stun1.l.google.com:19302' },
+        { urls: 'stun:stun2.l.google.com:19302' }
       ];
       
-      // Create new RTCPeerConnection with minimal config
+      // Create new RTCPeerConnection
       const peerConnection = new RTCPeerConnection({ iceServers });
       
       // Add event listeners
       peerConnection.onicecandidate = (event) => {
         if (event.candidate === null) {
-          // ICE gathering completed, we can get the description
+          // ICE gathering completed
           console.log("ICE gathering completed");
         }
       };
@@ -62,6 +72,11 @@ export const usePeerConnection = () => {
         console.log("Connection state:", peerConnection.connectionState);
         if (peerConnection.connectionState === 'connected') {
           setConnectionStatus('connected');
+          
+          if (connectionTimeoutRef.current) {
+            clearTimeout(connectionTimeoutRef.current);
+            connectionTimeoutRef.current = null;
+          }
         } else if (peerConnection.connectionState === 'disconnected' || 
                    peerConnection.connectionState === 'failed' ||
                    peerConnection.connectionState === 'closed') {
@@ -75,12 +90,19 @@ export const usePeerConnection = () => {
       
       peerConnection.oniceconnectionstatechange = () => {
         console.log("ICE connection state:", peerConnection.iceConnectionState);
+        
+        // Handle ICE connection failures
+        if (peerConnection.iceConnectionState === 'failed') {
+          console.warn("ICE connection failed, attempting to restart");
+          peerConnection.restartIce();
+        }
       };
       
       peerConnectionRef.current = peerConnection;
       return peerConnection;
     } catch (error) {
       console.error("Error creating peer connection:", error);
+      setPeerSupported(false);
       return null;
     }
   }, [peerSupported]);
@@ -109,7 +131,9 @@ export const usePeerConnection = () => {
       }
       
       // Create data channel
-      const dataChannel = peerConnection.createDataChannel('chat');
+      const dataChannel = peerConnection.createDataChannel('chat', {
+        ordered: true // Ensure messages arrive in order
+      });
       dataChannelRef.current = dataChannel;
       
       dataChannel.onopen = () => {
@@ -125,6 +149,7 @@ export const usePeerConnection = () => {
       dataChannel.onmessage = (event) => {
         try {
           const message = JSON.parse(event.data);
+          console.log('Received message on data channel:', message.type);
           if (onDataHandlerRef.current) {
             onDataHandlerRef.current(message);
           }
@@ -133,11 +158,18 @@ export const usePeerConnection = () => {
         }
       };
       
+      // Set connection timeout (15 seconds)
+      connectionTimeoutRef.current = setTimeout(() => {
+        if (connectionStatus !== 'connected') {
+          console.warn('Connection timeout - still proceeding with offer creation');
+        }
+      }, 15000);
+      
       // Create offer
       peerConnection.createOffer()
         .then(offer => peerConnection.setLocalDescription(offer))
         .then(() => {
-          // Wait for ICE gathering to complete
+          // Wait for ICE gathering to complete or timeout after 5 seconds
           const checkForComplete = setInterval(() => {
             if (peerConnection.iceGatheringState === 'complete') {
               clearInterval(checkForComplete);
@@ -155,7 +187,7 @@ export const usePeerConnection = () => {
           // Timeout after 5 seconds to ensure we get some signaling data even if not complete
           setTimeout(() => {
             clearInterval(checkForComplete);
-            if (!signalingData && peerConnection.localDescription) {
+            if (peerConnection.localDescription) {
               const sdpData = JSON.stringify(peerConnection.localDescription);
               console.log('Generated offer SDP (timeout), length:', sdpData.length);
               setSignalingData(sdpData);
@@ -175,7 +207,7 @@ export const usePeerConnection = () => {
       setConnectionStatus('disconnected');
       return false;
     }
-  }, [peerSupported, setupPeerConnection, signalingData]);
+  }, [peerSupported, setupPeerConnection, connectionStatus]);
 
   // Join an existing peer connection
   const joinPeerConnection = useCallback((userId: string, roomId: string, connectionData: string, onDataHandler: PeerHandler) => {
@@ -200,6 +232,14 @@ export const usePeerConnection = () => {
         return false;
       }
       
+      // Set connection timeout (15 seconds)
+      connectionTimeoutRef.current = setTimeout(() => {
+        if (connectionStatus !== 'connected') {
+          console.warn('Connection timeout when joining');
+          // We continue anyway as the connection might still establish later
+        }
+      }, 15000);
+      
       // Set up data channel event handlers
       peerConnection.ondatachannel = (event) => {
         const dataChannel = event.channel;
@@ -218,6 +258,7 @@ export const usePeerConnection = () => {
         dataChannel.onmessage = (event) => {
           try {
             const message = JSON.parse(event.data);
+            console.log('Received message on data channel:', message.type);
             if (onDataHandlerRef.current) {
               onDataHandlerRef.current(message);
             }
@@ -261,27 +302,33 @@ export const usePeerConnection = () => {
       setConnectionStatus('disconnected');
       return false;
     }
-  }, [peerSupported, setupPeerConnection]);
+  }, [peerSupported, setupPeerConnection, connectionStatus]);
 
   // Send a message through the data channel
   const sendPeerData = useCallback((userId: string, type: string, payload: any) => {
-    if (!peerSupported || !dataChannelRef.current || dataChannelRef.current.readyState !== 'open') {
-      console.warn('Data channel not available or not open');
+    if (!dataChannelRef.current) {
+      console.warn('Data channel not available');
+      return false;
+    }
+    
+    if (dataChannelRef.current.readyState !== 'open') {
+      console.warn('Data channel not open, current state:', dataChannelRef.current.readyState);
       return false;
     }
     
     try {
       const message: PeerMessage = { type, payload };
+      console.log('Sending message via data channel:', type);
       dataChannelRef.current.send(JSON.stringify(message));
       return true;
     } catch (error) {
       console.error('Error sending data through data channel:', error);
       return false;
     }
-  }, [peerSupported]);
+  }, []);
 
   // Close the peer connection
-  const closePeerConnections = useCallback(() => {
+  const closePeerConnections = useCallback((roomId?: string) => {
     try {
       if (dataChannelRef.current) {
         dataChannelRef.current.close();
@@ -291,6 +338,15 @@ export const usePeerConnection = () => {
       if (peerConnectionRef.current) {
         peerConnectionRef.current.close();
         peerConnectionRef.current = null;
+      }
+      
+      if (connectionTimeoutRef.current) {
+        clearTimeout(connectionTimeoutRef.current);
+        connectionTimeoutRef.current = null;
+      }
+      
+      if (roomId) {
+        clearSignalingData(roomId);
       }
       
       setSignalingData(null);
