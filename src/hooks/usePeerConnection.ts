@@ -21,6 +21,7 @@ export const usePeerConnection = () => {
   const dataChannelRef = useRef<RTCDataChannel | null>(null);
   const onDataHandlerRef = useRef<PeerHandler | null>(null);
   const connectionTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+  const reconnectIntervalRef = useRef<NodeJS.Timeout | null>(null);
 
   // Check if WebRTC is supported in this browser
   useEffect(() => {
@@ -40,47 +41,86 @@ export const usePeerConnection = () => {
       if (connectionTimeoutRef.current) {
         clearTimeout(connectionTimeoutRef.current);
       }
+      if (reconnectIntervalRef.current) {
+        clearInterval(reconnectIntervalRef.current);
+      }
     };
   }, []);
 
-  // Setup RTCPeerConnection with minimal configuration
+  // Setup RTCPeerConnection with improved configuration
   const setupPeerConnection = useCallback(() => {
     if (!peerSupported) return null;
     
     try {
       console.log('Browser supports WebRTC, creating peer connection...');
       
-      // Simplified configuration with multiple STUN servers for better connectivity
+      // More comprehensive STUN server configuration for better connectivity
       const iceServers = [
         { urls: 'stun:stun.l.google.com:19302' },
         { urls: 'stun:stun1.l.google.com:19302' },
-        { urls: 'stun:stun2.l.google.com:19302' }
+        { urls: 'stun:stun2.l.google.com:19302' },
+        { urls: 'stun:stun3.l.google.com:19302' },
+        { urls: 'stun:stun4.l.google.com:19302' }
       ];
       
-      // Create new RTCPeerConnection
-      const peerConnection = new RTCPeerConnection({ iceServers });
+      // Create new RTCPeerConnection with improved configuration
+      const peerConnection = new RTCPeerConnection({ 
+        iceServers,
+        iceCandidatePoolSize: 10,
+        // Enable TURN/TCP as a fallback for very restrictive networks
+        iceTransportPolicy: 'all'
+      });
       
-      // Add event listeners
+      // Add event listeners with better logging
       peerConnection.onicecandidate = (event) => {
-        if (event.candidate === null) {
+        if (event.candidate) {
+          console.log("New ICE candidate:", event.candidate.candidate);
+        } else {
           // ICE gathering completed
           console.log("ICE gathering completed");
         }
       };
       
       peerConnection.onconnectionstatechange = () => {
-        console.log("Connection state:", peerConnection.connectionState);
+        console.log("Connection state changed:", peerConnection.connectionState);
+        
         if (peerConnection.connectionState === 'connected') {
           setConnectionStatus('connected');
+          console.log("WebRTC connection established successfully!");
           
           if (connectionTimeoutRef.current) {
             clearTimeout(connectionTimeoutRef.current);
             connectionTimeoutRef.current = null;
           }
-        } else if (peerConnection.connectionState === 'disconnected' || 
-                   peerConnection.connectionState === 'failed' ||
+          
+          if (reconnectIntervalRef.current) {
+            clearInterval(reconnectIntervalRef.current);
+            reconnectIntervalRef.current = null;
+          }
+        } else if (peerConnection.connectionState === 'disconnected') {
+          console.log("Connection disconnected, trying to recover...");
+          setConnectionStatus('connecting');
+          
+          // Set up reconnection attempts
+          if (!reconnectIntervalRef.current) {
+            reconnectIntervalRef.current = setInterval(() => {
+              console.log("Attempting to restart ICE...");
+              try {
+                peerConnection.restartIce();
+              } catch (error) {
+                console.error("Error restarting ICE:", error);
+              }
+            }, 5000); // Try every 5 seconds
+          }
+        } else if (peerConnection.connectionState === 'failed' || 
                    peerConnection.connectionState === 'closed') {
+          console.log("Connection failed or closed");
           setConnectionStatus('disconnected');
+          
+          if (reconnectIntervalRef.current) {
+            clearInterval(reconnectIntervalRef.current);
+            reconnectIntervalRef.current = null;
+          }
         }
       };
       
@@ -91,10 +131,16 @@ export const usePeerConnection = () => {
       peerConnection.oniceconnectionstatechange = () => {
         console.log("ICE connection state:", peerConnection.iceConnectionState);
         
-        // Handle ICE connection failures
+        // Handle ICE connection failures with more robust recovery
         if (peerConnection.iceConnectionState === 'failed') {
           console.warn("ICE connection failed, attempting to restart");
-          peerConnection.restartIce();
+          try {
+            peerConnection.restartIce();
+          } catch (error) {
+            console.error("Error restarting ICE:", error);
+          }
+        } else if (peerConnection.iceConnectionState === 'disconnected') {
+          console.warn("ICE disconnected, monitoring for recovery");
         }
       };
       
@@ -107,7 +153,7 @@ export const usePeerConnection = () => {
     }
   }, [peerSupported]);
 
-  // Initialize as room creator
+  // Initialize as room creator with improved resilience
   const createPeerConnection = useCallback((userId: string, roomId: string, onDataHandler: PeerHandler) => {
     if (!peerSupported) {
       console.warn('WebRTC not supported, using BroadcastChannel only');
@@ -116,7 +162,7 @@ export const usePeerConnection = () => {
     
     try {
       setConnectionStatus('connecting');
-      console.log('Attempting to create peer connection...');
+      console.log('Attempting to create peer connection as room creator...');
       
       // Store the data handler
       onDataHandlerRef.current = onDataHandler;
@@ -130,9 +176,10 @@ export const usePeerConnection = () => {
         return false;
       }
       
-      // Create data channel
+      // Create data channel with improved reliability options
       const dataChannel = peerConnection.createDataChannel('chat', {
-        ordered: true // Ensure messages arrive in order
+        ordered: true, // Ensure messages arrive in order
+        maxRetransmits: 30, // Retry sending failed messages up to 30 times
       });
       dataChannelRef.current = dataChannel;
       
@@ -143,7 +190,13 @@ export const usePeerConnection = () => {
       
       dataChannel.onclose = () => {
         console.log('Data channel closed');
-        setConnectionStatus('disconnected');
+        if (connectionStatus === 'connected') {
+          setConnectionStatus('disconnected');
+        }
+      };
+      
+      dataChannel.onerror = (error) => {
+        console.error('Data channel error:', error);
       };
       
       dataChannel.onmessage = (event) => {
@@ -165,10 +218,20 @@ export const usePeerConnection = () => {
         }
       }, 15000);
       
-      // Create offer
-      peerConnection.createOffer()
-        .then(offer => peerConnection.setLocalDescription(offer))
+      // Create offer with specific constraints for better compatibility
+      const offerOptions = {
+        offerToReceiveAudio: false,
+        offerToReceiveVideo: false,
+        iceRestart: true
+      };
+      
+      peerConnection.createOffer(offerOptions)
+        .then(offer => {
+          console.log("Created offer, setting local description");
+          return peerConnection.setLocalDescription(offer);
+        })
         .then(() => {
+          console.log("Local description set, waiting for ICE gathering");
           // Wait for ICE gathering to complete or timeout after 5 seconds
           const checkForComplete = setInterval(() => {
             if (peerConnection.iceGatheringState === 'complete') {
@@ -176,7 +239,10 @@ export const usePeerConnection = () => {
               
               // Get complete session description
               if (peerConnection.localDescription) {
-                const sdpData = JSON.stringify(peerConnection.localDescription);
+                const sdpData = JSON.stringify({
+                  type: peerConnection.localDescription.type,
+                  sdp: peerConnection.localDescription.sdp
+                });
                 console.log('Generated offer SDP, length:', sdpData.length);
                 setSignalingData(sdpData);
                 storeSignalingData(roomId, sdpData);
@@ -188,7 +254,10 @@ export const usePeerConnection = () => {
           setTimeout(() => {
             clearInterval(checkForComplete);
             if (peerConnection.localDescription) {
-              const sdpData = JSON.stringify(peerConnection.localDescription);
+              const sdpData = JSON.stringify({
+                type: peerConnection.localDescription.type,
+                sdp: peerConnection.localDescription.sdp
+              });
               console.log('Generated offer SDP (timeout), length:', sdpData.length);
               setSignalingData(sdpData);
               storeSignalingData(roomId, sdpData);
@@ -209,7 +278,7 @@ export const usePeerConnection = () => {
     }
   }, [peerSupported, setupPeerConnection, connectionStatus]);
 
-  // Join an existing peer connection
+  // Join an existing peer connection with improved reliability
   const joinPeerConnection = useCallback((userId: string, roomId: string, connectionData: string, onDataHandler: PeerHandler) => {
     if (!peerSupported) {
       console.warn('WebRTC not supported, using BroadcastChannel only');
@@ -232,16 +301,17 @@ export const usePeerConnection = () => {
         return false;
       }
       
-      // Set connection timeout (15 seconds)
+      // Set connection timeout (25 seconds - longer to allow for connection establishment)
       connectionTimeoutRef.current = setTimeout(() => {
         if (connectionStatus !== 'connected') {
-          console.warn('Connection timeout when joining');
+          console.warn('Connection timeout when joining, but still attempting...');
           // We continue anyway as the connection might still establish later
         }
-      }, 15000);
+      }, 25000);
       
       // Set up data channel event handlers
       peerConnection.ondatachannel = (event) => {
+        console.log("Data channel received from peer");
         const dataChannel = event.channel;
         dataChannelRef.current = dataChannel;
         
@@ -252,7 +322,13 @@ export const usePeerConnection = () => {
         
         dataChannel.onclose = () => {
           console.log('Data channel closed');
-          setConnectionStatus('disconnected');
+          if (connectionStatus === 'connected') {
+            setConnectionStatus('disconnected');
+          }
+        };
+        
+        dataChannel.onerror = (error) => {
+          console.error('Data channel error:', error);
         };
         
         dataChannel.onmessage = (event) => {
@@ -270,20 +346,32 @@ export const usePeerConnection = () => {
       
       // Parse the remote description from the connection data
       try {
+        console.log("Parsing remote description from connection data");
         const remoteDesc = JSON.parse(connectionData);
         
         // Set the remote description
+        console.log("Setting remote description");
         peerConnection.setRemoteDescription(new RTCSessionDescription(remoteDesc))
-          .then(() => peerConnection.createAnswer())
-          .then(answer => peerConnection.setLocalDescription(answer))
+          .then(() => {
+            console.log("Remote description set, creating answer");
+            return peerConnection.createAnswer();
+          })
+          .then(answer => {
+            console.log("Answer created, setting local description");
+            return peerConnection.setLocalDescription(answer);
+          })
           .then(() => {
             console.log('Answer created and set as local description');
             
             // If needed, create and share the answer SDP for two-way connection
             if (peerConnection.localDescription) {
-              const answerSdp = JSON.stringify(peerConnection.localDescription);
+              const answerSdp = JSON.stringify({
+                type: peerConnection.localDescription.type,
+                sdp: peerConnection.localDescription.sdp
+              });
               console.log('Generated answer SDP, length:', answerSdp.length);
               // For simplicity, we're not handling the answer SDP sharing in this example
+              // But it could be useful for more complex connection scenarios
             }
           })
           .catch(error => {
@@ -304,7 +392,7 @@ export const usePeerConnection = () => {
     }
   }, [peerSupported, setupPeerConnection, connectionStatus]);
 
-  // Send a message through the data channel
+  // Send a message through the data channel with retry logic
   const sendPeerData = useCallback((userId: string, type: string, payload: any) => {
     if (!dataChannelRef.current) {
       console.warn('Data channel not available');
@@ -323,6 +411,20 @@ export const usePeerConnection = () => {
       return true;
     } catch (error) {
       console.error('Error sending data through data channel:', error);
+      
+      // Retry once after a short delay
+      setTimeout(() => {
+        try {
+          if (dataChannelRef.current && dataChannelRef.current.readyState === 'open') {
+            const message: PeerMessage = { type, payload };
+            console.log('Retrying message via data channel:', type);
+            dataChannelRef.current.send(JSON.stringify(message));
+          }
+        } catch (retryError) {
+          console.error('Error in retry attempt:', retryError);
+        }
+      }, 1000);
+      
       return false;
     }
   }, []);
@@ -343,6 +445,11 @@ export const usePeerConnection = () => {
       if (connectionTimeoutRef.current) {
         clearTimeout(connectionTimeoutRef.current);
         connectionTimeoutRef.current = null;
+      }
+      
+      if (reconnectIntervalRef.current) {
+        clearInterval(reconnectIntervalRef.current);
+        reconnectIntervalRef.current = null;
       }
       
       if (roomId) {

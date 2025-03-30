@@ -27,4 +27,5 @@ export type ChatContextType = {
   signalingData: string | null;
   connectionStatus: 'disconnected' | 'connecting' | 'connected';
   connectWithSignalingData: (data: string) => void;
+  requestActiveUsers: () => void;
 };

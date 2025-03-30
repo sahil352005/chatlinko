@@ -4,10 +4,11 @@ import { ChatProvider, useChat } from '../context/ChatContext';
 import JoinForm from '../components/JoinForm';
 import ChatRoom from '../components/ChatRoom';
 import Header from '../components/Header';
+import { toast } from '@/hooks/use-toast';
 
 // Main component that checks URL params and renders the appropriate UI
 const ChatApp: React.FC = () => {
-  const { isConnected, joinRoom } = useChat();
+  const { isConnected, joinRoom, requestActiveUsers, connectionStatus } = useChat();
   
   // Check for room ID in URL
   useEffect(() => {
@@ -22,6 +23,27 @@ const ChatApp: React.FC = () => {
     }
   }, [isConnected, joinRoom]);
 
+  // Periodically request active users when connected
+  useEffect(() => {
+    let interval: NodeJS.Timeout | null = null;
+    
+    if (isConnected && connectionStatus === 'connected') {
+      // Request active users immediately
+      requestActiveUsers();
+      
+      // Then periodically every 30 seconds
+      interval = setInterval(() => {
+        requestActiveUsers();
+      }, 30000);
+    }
+    
+    return () => {
+      if (interval) {
+        clearInterval(interval);
+      }
+    };
+  }, [isConnected, connectionStatus, requestActiveUsers]);
+
   return (
     <div className="min-h-screen flex flex-col bg-gradient-to-b from-white to-gray-50">
       <Header />
@@ -30,7 +52,7 @@ const ChatApp: React.FC = () => {
         {!isConnected ? (
           <JoinForm />
         ) : (
-          <div className="w-full max-w-4xl shadow-xl rounded-xl overflow-hidden">
+          <div className="w-full max-w-6xl shadow-xl rounded-xl overflow-hidden">
             <ChatRoom />
           </div>
         )}

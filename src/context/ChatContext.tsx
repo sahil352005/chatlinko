@@ -20,6 +20,7 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const [broadcastChannel, setBroadcastChannel] = useState<BroadcastChannel | null>(null);
   const [webRTCSupported, setWebRTCSupported] = useState<boolean>(true);
   const [heartbeatInterval, setHeartbeatInterval] = useState<NodeJS.Timeout | null>(null);
+  const [userPresenceTimeout, setUserPresenceTimeout] = useState<{[key: string]: NodeJS.Timeout}>({});
 
   // Use our custom hook for peer connections
   const { 
@@ -46,8 +47,39 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
       if (heartbeatInterval) {
         clearInterval(heartbeatInterval);
       }
+      
+      // Clear all user presence timeouts
+      Object.values(userPresenceTimeout).forEach(timeout => {
+        clearTimeout(timeout);
+      });
     };
   }, []);
+
+  // Update user presence tracking
+  const updateUserPresence = useCallback((userId: string, user: User) => {
+    // Clear existing timeout if any
+    if (userPresenceTimeout[userId]) {
+      clearTimeout(userPresenceTimeout[userId]);
+    }
+    
+    // Set new timeout - if no heartbeat received in 15 seconds, remove user
+    const timeout = setTimeout(() => {
+      console.log(`User ${userId} timed out, removing from users list`);
+      setUsers(prev => prev.filter(u => u.id !== userId));
+      // Clean up the timeout reference
+      setUserPresenceTimeout(prev => {
+        const newTimeouts = {...prev};
+        delete newTimeouts[userId];
+        return newTimeouts;
+      });
+    }, 15000); // 15 seconds timeout
+    
+    // Store the timeout reference
+    setUserPresenceTimeout(prev => ({
+      ...prev,
+      [userId]: timeout
+    }));
+  }, [userPresenceTimeout]);
 
   // Handler for peer and broadcast messages
   const handleDataReceived = useCallback((data: any) => {
@@ -74,6 +106,9 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
             return prev;
           });
           
+          // Update user presence
+          updateUserPresence(payload.id, payload);
+          
           // Reply with your user info
           if (user) {
             setTimeout(() => {
@@ -99,12 +134,25 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
             // Update existing user info
             return prev.map(u => u.id === payload.id ? payload : u);
           });
+          
+          // Update user presence
+          updateUserPresence(payload.id, payload);
         }
         break;
         
       case 'USER_LEFT':
         console.log('User left:', payload.userId);
         setUsers(prev => prev.filter(u => u.id !== payload.userId));
+        
+        // Clean up the presence timeout
+        if (userPresenceTimeout[payload.userId]) {
+          clearTimeout(userPresenceTimeout[payload.userId]);
+          setUserPresenceTimeout(prev => {
+            const newTimeouts = {...prev};
+            delete newTimeouts[payload.userId];
+            return newTimeouts;
+          });
+        }
         break;
         
       case 'HEARTBEAT':
@@ -118,6 +166,11 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
             }
             return prev;
           });
+          
+          // Update user presence if we have the user object
+          if (payload.user) {
+            updateUserPresence(payload.userId, payload.user);
+          }
         }
         break;
         
@@ -133,7 +186,7 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
         }
         break;
     }
-  }, [user, sendPeerData, broadcastChannel]);
+  }, [user, sendPeerData, broadcastChannel, updateUserPresence, userPresenceTimeout]);
 
   // Create a new room
   const createRoom = useCallback((userName: string) => {
@@ -164,15 +217,32 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
       newRoomId,
       newUser,
       (message) => setMessages(prev => [...prev, message]),
-      (user) => setUsers(prev => {
-        // Only add if not already in the list
-        const exists = prev.some(u => u.id === user.id);
-        if (!exists) {
-          return [...prev, user];
+      (user) => {
+        setUsers(prev => {
+          // Only add if not already in the list
+          const exists = prev.some(u => u.id === user.id);
+          if (!exists) {
+            return [...prev, user];
+          }
+          return prev;
+        });
+        
+        // Update user presence
+        updateUserPresence(user.id, user);
+      },
+      (userId) => {
+        setUsers(prev => prev.filter(u => u.id !== userId));
+        
+        // Clean up the presence timeout
+        if (userPresenceTimeout[userId]) {
+          clearTimeout(userPresenceTimeout[userId]);
+          setUserPresenceTimeout(prev => {
+            const newTimeouts = {...prev};
+            delete newTimeouts[userId];
+            return newTimeouts;
+          });
         }
-        return prev;
-      }),
-      (userId) => setUsers(prev => prev.filter(u => u.id !== userId))
+      }
     );
     
     setBroadcastChannel(channel);
@@ -202,7 +272,7 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
     setHeartbeatInterval(interval);
     
     return newRoomId;
-  }, [createPeerConnection, handleDataReceived, peerSupported, webRTCSupported, connectionStatus, sendPeerData]);
+  }, [createPeerConnection, handleDataReceived, peerSupported, webRTCSupported, connectionStatus, sendPeerData, updateUserPresence, userPresenceTimeout]);
 
   // Join an existing room
   const joinRoom = useCallback((roomId: string, userName: string) => {
@@ -216,15 +286,32 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
       roomId,
       newUser,
       (message) => setMessages(prev => [...prev, message]),
-      (user) => setUsers(prev => {
-        // Only add if not already in the list
-        const exists = prev.some(u => u.id === user.id);
-        if (!exists) {
-          return [...prev, user];
+      (user) => {
+        setUsers(prev => {
+          // Only add if not already in the list
+          const exists = prev.some(u => u.id === user.id);
+          if (!exists) {
+            return [...prev, user];
+          }
+          return prev;
+        });
+        
+        // Update user presence
+        updateUserPresence(user.id, user);
+      },
+      (userId) => {
+        setUsers(prev => prev.filter(u => u.id !== userId));
+        
+        // Clean up the presence timeout
+        if (userPresenceTimeout[userId]) {
+          clearTimeout(userPresenceTimeout[userId]);
+          setUserPresenceTimeout(prev => {
+            const newTimeouts = {...prev};
+            delete newTimeouts[userId];
+            return newTimeouts;
+          });
         }
-        return prev;
-      }),
-      (userId) => setUsers(prev => prev.filter(u => u.id !== userId))
+      }
     );
     
     setBroadcastChannel(channel);
@@ -256,7 +343,7 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
     
     setHeartbeatInterval(interval);
     setIsConnected(true);
-  }, [connectionStatus, sendPeerData]);
+  }, [connectionStatus, sendPeerData, updateUserPresence, userPresenceTimeout]);
 
   // Connect with signaling data (for WebRTC)
   const connectWithSignalingData = useCallback((data: string) => {
@@ -295,6 +382,32 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
     }
   }, [user, roomId, joinPeerConnection, handleDataReceived, peerSupported, webRTCSupported]);
 
+  // Request active users
+  const requestActiveUsers = useCallback(() => {
+    if (!user) return;
+    
+    console.log('Requesting active users');
+    
+    // Send via WebRTC if connected
+    if (connectionStatus === 'connected') {
+      sendPeerData(user.id, 'REQUEST_USERS', { userId: user.id });
+    }
+    
+    // Also send via BroadcastChannel
+    if (broadcastChannel) {
+      sendBroadcastMessage(broadcastChannel, 'REQUEST_USERS', { userId: user.id });
+    }
+    
+    // Always also send our own user info
+    if (connectionStatus === 'connected') {
+      sendPeerData(user.id, 'USER_INFO', user);
+    }
+    
+    if (broadcastChannel) {
+      sendBroadcastMessage(broadcastChannel, 'USER_INFO', user);
+    }
+  }, [user, connectionStatus, sendPeerData, broadcastChannel]);
+
   // Monitor connection status changes
   useEffect(() => {
     if (connectionStatus === 'connected') {
@@ -328,13 +441,19 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
       setHeartbeatInterval(null);
     }
     
+    // Clear all user presence timeouts
+    Object.values(userPresenceTimeout).forEach(timeout => {
+      clearTimeout(timeout);
+    });
+    setUserPresenceTimeout({});
+    
     setBroadcastChannel(null);
     setUser(null);
     setRoomId(null);
     setMessages([]);
     setUsers([]);
     setIsConnected(false);
-  }, [broadcastChannel, user, closePeerConnections, peerSupported, roomId, heartbeatInterval]);
+  }, [broadcastChannel, user, closePeerConnections, peerSupported, roomId, heartbeatInterval, userPresenceTimeout]);
 
   // Send a message
   const sendMessage = useCallback((text: string) => {
@@ -375,7 +494,8 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
     isConnected,
     signalingData,
     connectionStatus,
-    connectWithSignalingData
+    connectWithSignalingData,
+    requestActiveUsers
   };
 
   return <ChatContext.Provider value={value}>{children}</ChatContext.Provider>;
